@@ -45,7 +45,7 @@ exceptions to a human at the Auto Workbench instead of guessing. Full rationale 
 ## Repository Structure
 
 ```
-supervity/
+supervity-ai-employee/
 ├── README.md                       ← you are here
 ├── CONTEXT.md                      ← immutable knowledge base (rules, problem statement, dataset facts)
 ├── docs/
