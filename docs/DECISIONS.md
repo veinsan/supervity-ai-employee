@@ -40,6 +40,28 @@ application layer (`ARCHITECTURE.md` §2).
 side to Supabase while keeping Airtable as the write-side system of record is a viable incremental path
 — not designed now, per the Round 2 scope boundary (`ARCHITECTURE.md` §10).
 
+**Amendment (Round 1, in progress):** the incremental path above started earlier than planned, and on
+the write side too, not just reads. `Workers`, `Manager_Directory`, and `policy_config` — the three
+tables OP-01 touches — now live on Supabase (`config/supabase_schema.sql`), written via
+`scripts/seed_loader/supabase_client.py` and Auto's custom-REST path (`AUTO_BUILD_GUIDE.md` Conventions
+§A). `Onboarding_Tasks`, `Provisioning_Integration`, `Peakon_Engagement`, and `Cases & Audit Log` are
+deliberately **not** migrated yet:
+- The first three belong to OP-02/OP-03, which aren't built — no forcing function to move them before
+  their own Operators exist.
+- `Cases & Audit Log` is held back specifically because `TASKS.md` `0.0.4` already confirmed OP-05's
+  Round 1 console as an **Airtable Interface** sitting on top of it (`ARCHITECTURE.md` §1 `DASH` node).
+  Moving that table would reopen `0.0.4` and require a different console (Airtable Interfaces have no
+  Supabase/Postgres equivalent in this workspace) — a decision deliberately deferred until Epic 4.1 is
+  actually being built, not made preemptively here.
+
+This makes Airtable the system of record for 4 of 7 tables and Supabase for the remaining 3, both reached
+through the same Path-2-custom-REST pattern in Auto (no native connector for either, per spike `0.0.3`).
+Every other document in this package that names "Airtable" as *the* system of record should be read with
+this split in mind; only `INTEGRATIONS.md` §1 and `ARCHITECTURE.md` §1/§7 have been updated with the
+explicit caveat, since they're the load-bearing summaries — per-Operator sections elsewhere (`OPERATORS.md`
+OP-02/OP-03/OP-04/OP-05) are still accurate as written because they only ever touch the still-Airtable
+tables.
+
 ---
 
 ## ADR-002 — Channel Integration: Slack with a Separate Confidential Channel

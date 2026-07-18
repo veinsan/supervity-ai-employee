@@ -28,7 +28,8 @@ sees it. This is the Operator responsible for the "name variants … duplicate r
 - Normalize free-text fields (name casing, whitespace trimming, date parsing across known formats).
 - Fuzzy-match the incoming record against existing `Workers` rows to catch name-variant duplicates
   (e.g., "Faizal Nair" vs "faizal nair " vs "Faizal  Nair") before creating a new record.
-- Write the normalized record to `Workers` (Airtable), or update an existing matched record.
+- Write the normalized record to `Workers` (Supabase, `DECISIONS.md` ADR-001 amendment), or update an
+  existing matched record.
 
 ### Inputs
 | Field | Source | Required | Notes |
@@ -82,7 +83,7 @@ after intake without blocking it.
    `dedup_confidence_threshold` → treat as update to existing record, not a new hire. Below threshold but
    above a lower "worth flagging" band → escalate for human confirmation rather than silently deciding
    either way.
-5. Write to Airtable.
+5. Write to Supabase.
 
 ### Validation
 - The 3 hard-required fields (`Legal_Name`, `Hire_Date`, manager identification) must be non-empty after
@@ -100,11 +101,13 @@ don't re-run OP-01).
 None upstream. Downstream: writes the `Workers` row that OP-02/OP-03 read.
 
 ### Integrations
-- **Read/write:** Airtable `Workers`, read-only `Manager_Directory` (see `INTEGRATIONS.md` §Airtable).
-- **Trigger source:** Typeform webhook (see `INTEGRATIONS.md` §Typeform).
+- **Read/write:** Supabase `Workers`, read-only `Manager_Directory` (both Supabase, `DECISIONS.md`
+  ADR-001 amendment — see `INTEGRATIONS.md` §1b).
+- **Trigger source:** Typeform poll trigger, via the `1.1.5` Parent Workflow (see `INTEGRATIONS.md` §3;
+  `AUTO_BUILD_GUIDE.md` §B on the poll-vs-webhook platform reality).
 
 ### Retry Behavior
-Airtable write failure → retry per `policy_config.retry` (3 attempts, backoff 5/20/60s). Exhausted →
+Supabase write failure → retry per `policy_config.retry` (3 attempts, backoff 5/20/60s). Exhausted →
 escalate as an **integration failure** case (distinct from a business-logic escalation, tagged
 accordingly in the case record for audit clarity).
 
@@ -112,14 +115,14 @@ accordingly in the case record for audit clarity).
 | Failure type | Condition | Action |
 |---|---|---|
 | Validation | Required field missing/unparseable after normalization | Escalate to Workbench, tag `intake_validation` |
-| Integration | Airtable write fails after retries | Escalate to Workbench, tag `intake_integration_failure` |
+| Integration | Supabase write fails after retries | Escalate to Workbench, tag `intake_integration_failure` |
 | Low-confidence | Dedup match confidence in the ambiguous band | Escalate to Workbench, tag `intake_possible_duplicate` |
 
 ### Escalation Conditions
 - Unparseable `Hire_Date`.
 - Ambiguous manager match (0 or >1 candidates).
 - Ambiguous dedup match.
-- Airtable write failure after retries.
+- Supabase write failure after retries.
 
 ### Configurable Parameters
 | Parameter | Default | Reasoning |
@@ -206,18 +209,19 @@ this Operator is read-only, which is a deliberate design choice (see `ARCHITECTU
 what" invariant) so it can be re-run idempotently at any time without side effects.
 
 ### Integrations
-Airtable, read-only (`Onboarding_Tasks`, `Provisioning_Integration`, `Workers`).
+Airtable, read-only (`Onboarding_Tasks`, `Provisioning_Integration`); Supabase, read-only (`Workers`,
+`DECISIONS.md` ADR-001 amendment).
 
 ### Retry Behavior
-Read failures retry per `policy_config.retry`; exhausted → escalate as `provisioning_read_failure`
-(this is rare for a read-only call but must still degrade to escalation, not a crash, per the
-non-negotiable "don't crash" rule).
+Read failures retry per `policy_config.retry` regardless of which backend the read targets; exhausted →
+escalate as `provisioning_read_failure` (this is rare for a read-only call but must still degrade to
+escalation, not a crash, per the non-negotiable "don't crash" rule).
 
 ### Failure Handling
 | Failure type | Condition | Action |
 |---|---|---|
 | Validation | Unparseable date on a row | Exclude row from lateness math, note in output, continue |
-| Integration | Airtable read fails after retries | Escalate, tag `op02_integration_failure` |
+| Integration | Airtable or Supabase read fails after retries | Escalate, tag `op02_integration_failure` |
 | Low-confidence | Zero source rows for an active-window hire | Return `tier: LOW, data_state: "no_data_yet"`; do not escalate (expected state, not an error) |
 
 ### Escalation Conditions
@@ -309,22 +313,23 @@ Runs in parallel with OP-02, triggered by ORCH-01.
 Reads `Workers` (`Hire_Date`), `Peakon_Engagement`. Read-only, same idempotency rationale as OP-02.
 
 ### Integrations
-Airtable (read-only) + LLM classification call (via Supervity Auto's native LLM step — not a separate
-external integration for gate-counting purposes, since it does not connect to a new system of record,
-channel, or document store; see `INTEGRATIONS.md` note on this distinction).
+Airtable (read-only, `Peakon_Engagement`) + Supabase (read-only, `Workers`, `DECISIONS.md` ADR-001
+amendment) + LLM classification call (via Supervity Auto's native LLM step — not a separate external
+integration for gate-counting purposes, since it does not connect to a new system of record, channel, or
+document store; see `INTEGRATIONS.md` note on this distinction).
 
 ### Retry Behavior
-Airtable read and LLM classification calls both retry per `policy_config.retry`. LLM call exhausted →
-**must not** default to `confidential: false` (a false negative here is the single worst failure mode in
-the whole build — a real disclosure leaking into the general report). Default-on-failure is
-`confidential: true` with `confidence: 0` (fail safe, not fail silent), which routes to the Workbench for
-a human to actually read the comment and decide.
+Both reads (Airtable and Supabase) and the LLM classification call retry per `policy_config.retry`. LLM
+call exhausted → **must not** default to `confidential: false` (a false negative here is the single worst
+failure mode in the whole build — a real disclosure leaking into the general report). Default-on-failure
+is `confidential: true` with `confidence: 0` (fail safe, not fail silent), which routes to the Workbench
+for a human to actually read the comment and decide.
 
 ### Failure Handling
 | Failure type | Condition | Action |
 |---|---|---|
 | Validation | Score out of range | Exclude from scoring, note in output |
-| Integration | Airtable read fails after retries | Escalate, tag `op03_integration_failure` |
+| Integration | Airtable or Supabase read fails after retries | Escalate, tag `op03_integration_failure` |
 | Low-confidence | Classifier confidence below threshold on a possible disclosure | Fail-safe to `confidential: true`, route to Workbench, never to general report |
 
 ### Escalation Conditions
@@ -388,10 +393,11 @@ Called by ORCH-01 after risk tiering (§6 in `ARCHITECTURE.md`), after the confi
 have already routed away anything that shouldn't reach this Operator's non-confidential paths.
 
 ### Dependencies
-Reads `Manager_Directory`; writes Slack channels and the `Cases & Audit Log` table.
+Reads `Manager_Directory` (Supabase); writes Slack channels and the `Cases & Audit Log` table (Airtable).
 
 ### Integrations
-Slack (write), Airtable (write, `Cases & Audit Log`).
+Slack (write); Supabase (read, `Manager_Directory`, `DECISIONS.md` ADR-001 amendment); Airtable (write,
+`Cases & Audit Log`).
 
 ### Retry Behavior
 Slack send failure → retry per `policy_config.retry`. Exhausted → the case is **not** silently dropped:
@@ -427,8 +433,9 @@ them for the console/demo, while guaranteeing sensitive disclosure content never
 > input contract that could read a raw disclosure even by mistake, because the table isn't in its read
 > list at all. Any future edit that adds `Peakon_Engagement` to OP-05's inputs (or to `INTEGRATIONS.md`'s
 > summary row for OP-05) breaks this guarantee and must be treated as a regression, not a refactor —
-> see `DATA_FLOW.md` §7.3 for the full contract and `INTEGRATIONS.md` §1's OP-05 row, which must always
-> match the Inputs list below exactly.
+> see `DATA_FLOW.md` §7.3 for the full contract and `INTEGRATIONS.md` §1a/§1b's OP-05 rows (Airtable and
+> Supabase respectively, `DECISIONS.md` ADR-001 amendment), which must always match the Inputs list below
+> exactly.
 
 ### Responsibilities
 - Compute an **exposure rate**: the % of the active cohort currently showing at least one unresolved
@@ -440,7 +447,11 @@ them for the console/demo, while guaranteeing sensitive disclosure content never
 - Compute **at-risk-hire catch rate** (secondary metric): of hires with a logged case in `Cases & Audit
   Log`, what fraction received a routed intervention before their next milestone's due date.
 - Publish all three to the dashboard data shape (`ARCHITECTURE.md` §1, `DASH` node — an Airtable
-  Interface, per the Phase-0-confirmed surface, `ARCHITECTURE.md` §1 note).
+  Interface, per the Phase-0-confirmed surface, `ARCHITECTURE.md` §1 note). **This publish step must
+  write to an Airtable table** regardless of which backend a given metric was computed from — Airtable
+  Interfaces can only visualize Airtable data, and `active_cohort_size` (below) is sourced from Supabase's
+  `Workers` table post-migration. OP-05 itself (the Operator, reaching both backends via REST) is the only
+  place that bridges this; the Interface never queries Supabase directly.
 
 > **Why exposure rate, not catch rate, is the headline (fixes a near-tautology):** "at-risk catch rate"
 > as originally specified measured whether the system acted on the cases *it itself generated* — since
@@ -455,8 +466,9 @@ them for the console/demo, while guaranteeing sensitive disclosure content never
 > resolved" — which is honest framing rather than the headline claim.
 
 ### Inputs
-`Workers`, `Onboarding_Tasks`, `Provisioning_Integration`, `Cases & Audit Log` (all Airtable, read-only).
-**`Peakon_Engagement` is deliberately not in this list** — see the Purpose note above.
+`Workers` (Supabase, read-only); `Onboarding_Tasks`, `Provisioning_Integration`, `Cases & Audit Log`
+(Airtable, read-only). **`Peakon_Engagement` is deliberately not in this list** — see the Purpose note
+above.
 
 ### Outputs
 ```
@@ -502,21 +514,24 @@ Runs once at the end of each schedule-triggered cohort sweep (`ARCHITECTURE.md` 
 triggered on-demand for the demo/console.
 
 ### Dependencies
-Reads outputs written by OP-01/OP-04 (indirectly, via Airtable), so must run after a sweep completes,
-never interleaved with it — ORCH-01 enforces this ordering.
+Reads outputs written by OP-01 (indirectly, via Supabase) and OP-04 (indirectly, via Airtable), so must
+run after a sweep completes, never interleaved with it — ORCH-01 enforces this ordering.
 
 ### Integrations
-Airtable (read-only, aggregate query).
+Airtable (read-only, aggregate query, `Onboarding_Tasks`/`Provisioning_Integration`/`Cases & Audit Log`;
+also write, publishing computed metrics for the Interface — see Responsibilities); Supabase (read-only,
+`Workers`, `DECISIONS.md` ADR-001 amendment).
 
 ### Retry Behavior
-Read failure → retry per `policy_config.retry`; exhausted → publish the **previous** successful metric
-snapshot with a staleness flag, rather than showing a broken/blank dashboard during a live demo.
+Read failure (either backend) → retry per `policy_config.retry`; exhausted → publish the **previous**
+successful metric snapshot with a staleness flag, rather than showing a broken/blank dashboard during a
+live demo.
 
 ### Failure Handling
 | Failure type | Condition | Action |
 |---|---|---|
 | Validation | Zero-division case | Return explicit "insufficient data," not an error |
-| Integration | Airtable read fails after retries | Serve last-known-good snapshot with staleness flag |
+| Integration | Airtable or Supabase read fails after retries | Serve last-known-good snapshot with staleness flag |
 | Low-confidence | N/A | — |
 
 ### Escalation Conditions

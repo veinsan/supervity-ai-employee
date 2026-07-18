@@ -10,7 +10,7 @@ runbook, not a redesign — every prompt implements the frozen spec in `OPERATOR
 
 **How to use each section:**
 1. Paste the **Prompt** block into Auto's Operator builder (continue the named Operator, don't start a new one).
-2. Bind any highlighted Airtable step to the existing Path 2 REST credential (see Conventions §A).
+2. Bind any highlighted Airtable/Supabase step to the matching Path 2 REST credential (see Conventions §A — §A1 Airtable, §A2 Supabase).
 3. If Auto asks a clarifying question or asks you to confirm before running/saving, answer directly and
    explicitly — a concrete decision or a clear "yes, proceed." A vague or unanswered prompt is the most
    common way these builds stall.
@@ -24,7 +24,7 @@ Per Auto's own best-practice guide, translated to this project's specifics:
 | Auto keeps asking instead of building, or nothing happens | Reply with one concrete decision, or re-paste the **Goal** line plus just the step you're stuck on. |
 | "Waiting for approval" or similar | Send an explicit yes/no, or list exactly what to change, before anything else. |
 | Plan keeps changing, or the same error repeats | Narrow the ask to the single **STEP** that's failing rather than re-pasting the whole multi-step prompt. |
-| Auto picks the wrong data source or tool | State the correct one explicitly — e.g. "use the custom REST API Airtable credential from `0.1.4`, not the native Airtable connector" (see §A). |
+| Auto picks the wrong data source or tool | State the correct one explicitly — e.g. "use the Supabase REST credential (§A2), not the native Airtable connector — Workers isn't in Airtable anymore." |
 | Run blocked after you finish building | Open the Operator's/workspace's integration settings and finish any pending connection or authorization — check §A/§B for which one this step needs. |
 | Transient failure | Retry once; if it repeats, describe the last message you saw rather than pasting a raw technical error. |
 | The build conversation gets long or confused across several continue-prompts | Start a fresh Auto chat against the Operator's current saved version, then paste the next prompt there — keeps context clean without losing prior build progress. |
@@ -33,11 +33,21 @@ Per Auto's own best-practice guide, translated to this project's specifics:
 
 ## Conventions (read once, applies to every prompt below)
 
-### §A — Airtable is Path 2 (custom REST API), NOT a native connector
-Every Airtable read/write in these Operators is a **custom REST API call**, because this workspace has no
-native Airtable connector (spike `0.0.3` fallback). Do **not** use a native "Airtable" action block — it
-will show the "requires integration connected" error with no selectable connection. Use an HTTP/custom API
-request instead, bound to the existing Airtable REST credential set up during `0.1.4`.
+### §A — Two REST backends, both Path 2 (custom REST API), NEITHER a native connector
+`DECISIONS.md` ADR-001's amendment: `Workers`, `Manager_Directory`, and `policy_config` moved to Supabase;
+`Onboarding_Tasks`, `Provisioning_Integration`, `Peakon_Engagement`, and `Cases & Audit Log` are still on
+Airtable. Every read/write to either is a **custom REST API call** — this workspace has no native
+connector for Airtable (spike `0.0.3` fallback) or Supabase. Do **not** use a native "Airtable" or
+"Supabase"/"Postgres" action block — it will show a "requires integration connected" error with no
+selectable connection. Use an HTTP/custom API request instead, bound to the matching credential below.
+
+> **Gotcha:** the Airtable base still physically has a `Workers` table left over from before the
+> migration (and possibly `Manager_Directory`/`policy_config` too). Auto's builder may default to
+> suggesting it since it's the already-connected Airtable credential. Don't use it — Workers/
+> Manager_Directory/policy_config reads and writes go to Supabase only, per the table list in §E.
+
+**§A1 — Airtable** (still used by `1.2.x`/`1.3.x`/`2.1.3`/`2.1.4` — Onboarding_Tasks, Provisioning_Integration,
+Peakon_Engagement, Cases & Audit Log):
 
 | Property | Value |
 |---|---|
@@ -48,10 +58,27 @@ request instead, bound to the existing Airtable REST credential set up during `0
 | Plain create | `POST .../{table}` with body `{"typecast":true,"records":[{"fields":{...}}]}` |
 | Read/filter | `GET .../{table}?filterByFormula=<url-encoded formula>` |
 
-`{AIRTABLE_BASE_ID}` and `{AIRTABLE_TOKEN}` are in your `.env`. **Table-name encoding:** `Workers`,
-`Manager_Directory`, `policy_config` encode cleanly. `Cases & Audit Log` contains a space and `&` — use
-its **table ID** (`tbl…`, copy from `https://airtable.com/{AIRTABLE_BASE_ID}/api/docs`) instead of the
-name to avoid URL-encoding bugs, or URL-encode as `Cases%20%26%20Audit%20Log`.
+`{AIRTABLE_BASE_ID}` and `{AIRTABLE_TOKEN}` are in your `.env`. **Table-name encoding:** `Cases & Audit Log`
+contains a space and `&` — use its **table ID** (`tbl…`, copy from
+`https://airtable.com/{AIRTABLE_BASE_ID}/api/docs`) instead of the name to avoid URL-encoding bugs, or
+URL-encode as `Cases%20%26%20Audit%20Log`.
+
+**§A2 — Supabase** (used by `1.1.4` — Workers, Manager_Directory, policy_config), verified live against
+the project before writing this:
+
+| Property | Value |
+|---|---|
+| API root | `https://{SUPABASE_PROJECT_REF}.supabase.co/rest/v1` |
+| Auth headers | **both** required — `apikey: {SUPABASE_SERVICE_ROLE_KEY}` AND `Authorization: Bearer {SUPABASE_SERVICE_ROLE_KEY}`. Missing either → rejected. |
+| Content type | `Content-Type: application/json` |
+| Create/upsert | `POST .../{table}?on_conflict=<key column, e.g. Worker_WID>` with header `Prefer: resolution=merge-duplicates,return=representation` and body a **bare JSON array** `[{...fields...}]` — no `records`/`fields` envelope, that's Airtable's shape, not this one |
+| Read/filter | `GET .../{table}?{column}=eq.<value>&select=*` |
+| Delete | requires an explicit filter — PostgREST rejects a filter-less `DELETE` outright (`400: DELETE requires a WHERE clause`) |
+
+`{SUPABASE_URL}` (= `https://{SUPABASE_PROJECT_REF}.supabase.co`) and `{SUPABASE_SERVICE_ROLE_KEY}` are in
+your `.env`. Column names are quoted mixed-case in the DB (`config/supabase_schema.sql`) but work
+unquoted in URLs/JSON keys the same way Airtable's do — no extra encoding needed for any of `Worker_WID`,
+`Manager_WID`, `field_key`.
 
 ### §B — Slack is native; Typeform is native but poll-based, not push-webhook
 Slack send (`2.1.3`) uses the native Slack connector, posting to a channel **ID** (not name) — connected
@@ -62,9 +89,9 @@ single-outcome-out; per `1.1.5`, a small **Parent Workflow** polls Typeform and 
 individual submission returned, so OP-01 itself never has to change to handle a batch.
 
 ### §C — Retry + demo_mode (folds in task `0.2.4`)
-Every **write-side** step (Airtable write, Slack send) wraps its call in this retry logic. This implements
-`0.2.4` for OP-01 and OP-04 at the same time — mark `0.2.4` Done once both are built and the demo_mode
-toggle is verified.
+Every **write-side** step (Supabase write, Airtable write, Slack send) wraps its call in this retry logic
+— identical shape regardless of which REST backend the step targets. This implements `0.2.4` for OP-01
+and OP-04 at the same time — mark `0.2.4` Done once both are built and the demo_mode toggle is verified.
 
 1. Read `policy_config` row `field_key = "demo_mode"` → boolean `demo_mode`.
 2. If `demo_mode` is `true`, read row `field_key = "retry_demo_profile"` → `{max_attempts:1, backoff_seconds:[]}`.
@@ -88,7 +115,8 @@ implicit system clock directly.
 
 | Thing | Value |
 |---|---|
-| Airtable tables | `Workers`, `Onboarding_Tasks`, `Provisioning_Integration`, `Peakon_Engagement`, `Manager_Directory`, `policy_config`, `Cases & Audit Log` |
+| Supabase tables (§A2) | `Workers`, `Manager_Directory`, `policy_config` |
+| Airtable tables (§A1) | `Onboarding_Tasks`, `Provisioning_Integration`, `Peakon_Engagement`, `Cases & Audit Log` |
 | Manager-nudge channels (by `Manager_Directory.Org`) | Finance `C0BJA0P1M6V` · Sales `C0BJBQ02U2Y` · Ops `C0BHSMV328P` · Engineering `C0BJ4PYGV5K` · People `C0BJ4PZ8961` |
 | IT-escalation channel | `C0BJ839B24A` |
 | Confidential HR channel | `C0BK2CRJ596` |
@@ -122,24 +150,26 @@ validation (3 hard-required fields, optional-field data-quality notes) → date 
 fuzzy-dedup producing a placeholder output of `intake_result: will_create | will_update` (or an
 `intake_possible_duplicate` escalation). The steps below replace that placeholder.
 
-### `1.1.4` — Airtable write + retry/escalation
+### `1.1.4` — Supabase write + retry/escalation
 
 **Prompt:**
 ```
 Goal: every intake ends in exactly one outcome — a Worker row is created or
-updated in Airtable, or the record is escalated to the Workbench with full
+updated in Supabase, or the record is escalated to the Workbench with full
 context. Nothing is ever silently dropped.
 
 Continue building "OP-01 Intake & Normalization". Replace the placeholder final
 step (the one that outputs intake_result: will_create / will_update) with the
-Airtable write step below. Keep everything before it unchanged.
+Supabase write step below. Keep everything before it unchanged.
 
 Context from earlier steps you can use: the normalized field values, the parsed
 Hire_Date, the resolved Manager_WID and Manager_Org, and the dedup decision
 (intake_result = "will_update" with a matched_worker_wid, OR "will_create").
 
-STEP — Write the normalized Worker to Airtable (custom REST API, not a native
-Airtable action; use the existing Airtable REST credential).
+STEP — Write the normalized Worker to Supabase (custom REST API, not a native
+Airtable/Postgres action; use the Supabase REST credential, §A2 — NOT the
+Airtable credential, and NOT the leftover "Workers" table that still physically
+exists in Airtable from before the migration).
 
 1. Determine the Worker_WID to write:
    - If intake_result = "will_update": use the matched_worker_wid from the dedup
@@ -154,21 +184,22 @@ Airtable action; use the existing Airtable REST credential).
    Manager_Name, Manager_WID, Cost_Center, Position_ID, and Hire_Date
    formatted as YYYY-MM-DD.
 
-3. Read policy_config for the retry profile (this write is a write-side action):
+3. Read policy_config for the retry profile (this write is a write-side action;
+   policy_config is also on Supabase now, same credential as this step):
    - Read the row where field_key = "demo_mode". If its value is true, read the
      row field_key = "retry_demo_profile" (max_attempts 1, no backoff). Else read
      field_key = "retry" (max_attempts 3, backoff_seconds [5,20,60]).
 
 4. Send the write as an upsert so create and update share one path:
-     PATCH https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/Workers
-     Headers: Authorization: Bearer {AIRTABLE_TOKEN}, Content-Type: application/json
-     Body: {
-       "performUpsert": { "fieldsToMergeOn": ["Worker_WID"] },
-       "typecast": true,
-       "records": [ { "fields": { ...the fields object from step 2... } } ]
-     }
-   Because the merge key is Worker_WID, a matched existing WID updates that row
-   and a freshly generated WID creates a new row.
+     POST https://{SUPABASE_PROJECT_REF}.supabase.co/rest/v1/Workers?on_conflict=Worker_WID
+     Headers: apikey: {SUPABASE_SERVICE_ROLE_KEY},
+       Authorization: Bearer {SUPABASE_SERVICE_ROLE_KEY},
+       Content-Type: application/json,
+       Prefer: resolution=merge-duplicates,return=representation
+     Body: [ { ...the fields object from step 2... } ]
+   (A bare JSON array — no "records"/"fields" wrapper; that's Airtable's shape,
+   not Supabase's.) Because the merge key is Worker_WID, a matched existing WID
+   updates that row and a freshly generated WID creates a new row.
 
 5. Retry on ANY failure (network error or non-2xx HTTP response): wait
    backoff_seconds[attempt index] seconds between attempts (0 if none), up to
@@ -188,8 +219,9 @@ Airtable action; use the existing Airtable REST credential).
 ```
 
 **Simulate the failure for testing:** temporarily change the write step's table from `Workers` to a
-nonexistent name like `Workers_FAIL` (Airtable returns 404 → treated as a failure). Run, observe the retry
-behavior, then revert the table name.
+nonexistent name like `Workers_FAIL` in the URL (verified live: Supabase returns `404 PGRST205 — Could not
+find the table 'public.Workers_FAIL'` → treated as a failure, same mechanism as Airtable's 404). Run,
+observe the retry behavior, then revert the table name.
 
 **Test cases:**
 
@@ -243,7 +275,7 @@ Build a new Operator, "OP-01 Typeform Intake Poller".
 3. If a poll returns zero submissions, do nothing that run.
 
 4. Do not add any business logic here — validation, date parsing, manager
-   resolution, dedup, and the Airtable write all stay inside OP-01, unchanged.
+   resolution, dedup, and the Supabase write all stay inside OP-01, unchanged.
    This workflow's only job is polling and fan-out.
 ```
 
@@ -272,7 +304,7 @@ variable above. The 3 hard-required must be present as form fields: `Legal_Name`
 
 No new building — this is the end-to-end verification of the whole OP-01. Run all 5 through the live
 (or manual) trigger and confirm the exact outcome. Substitute the **bracketed** values with real data from
-your Airtable (an existing worker's name for the duplicate case).
+your Supabase `Workers` table (an existing worker's name for the duplicate case).
 
 | # | Case | Inputs | Expected outcome |
 |---|---|---|---|
@@ -295,6 +327,12 @@ Recap of what's already built (`2.1.1`): a manual/test trigger accepting `case_t
 `worker_wid`, `reasons[]`, `internal_case_payload?` → channel/manager resolution producing a
 `target_channel` (or an `op04_routing_unresolved` escalation) and a placeholder output. The steps below
 replace that placeholder.
+
+> **Check before continuing:** `2.1.2`'s templating step reads a `Workers` row that `2.1.1`'s
+> channel/manager resolution already looked up (for `preferred_name`). If `2.1.1` was built pointing at
+> Airtable's `Workers` table, that table no longer exists as the system of record — repoint that lookup to
+> Supabase (§A2) before building `2.1.2`, or it will read stale/absent data silently rather than fail
+> loudly.
 
 > **Confidentiality is the highest-stakes rule in this Operator.** A real disclosure leaking into a
 > manager/IT message or the general audit log is "the single worst failure mode in the whole build"

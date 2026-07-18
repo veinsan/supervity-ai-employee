@@ -1,11 +1,12 @@
 # `policy_config` v1.0 — Reference Export
 
 This file documents `policy_config.json`, the **versioned reference export** of the policy
-configuration defined in `docs/ARCHITECTURE.md` §7. Per that section, the **canonical, live copy is an
-Airtable table** (created in `docs/TASKS.md` 0.1.1/0.2.1) so a business user can edit it without
-touching code; this JSON exists for documentation, diffing, and as the source the seeding utility and
-tests read locally. Keep the two in sync — the JSON is the reviewed record, the Airtable table is the
-runtime surface.
+configuration defined in `docs/ARCHITECTURE.md` §7. Per that section, the **canonical, live copy is a
+Supabase table** (originally Airtable — created in `docs/TASKS.md` 0.1.1/0.2.1, migrated per `0.1.5` and
+`docs/DECISIONS.md` ADR-001's amendment) so a business user can edit it without touching code; this JSON
+exists for documentation, diffing, and as the source the seeding utility and tests read locally. Keep the
+two in sync — the JSON is the reviewed record, the Supabase table is the runtime surface, seeded by
+`scripts/seed_loader/seed_policy_config.py`.
 
 JSON cannot carry comments, so the one-line justification for every default (required by
 `docs/TASKS.md` 0.2.1 and `docs/MASTER_PLAN.md` §14) lives here. Justifications are transcribed from
@@ -60,5 +61,5 @@ reachable only through the linked Workbench case (`INTEGRATIONS.md` §2 "Data Ex
 
 | Field | Default | Justification |
 |---|---|---|
-| `retry` | 3 attempts, 5/20/60s backoff | Production default; absorbs Airtable rate limits and transient failures (`ARCHITECTURE.md` §7–§8). Exhausted retries always escalate, never silently drop (`OPERATORS.md` failure tables). |
+| `retry` | 3 attempts, 5/20/60s backoff | Production default; absorbs Airtable/Supabase rate limits and transient failures alike (`ARCHITECTURE.md` §7–§8) — same retry wrapper regardless of which backend a write targets. Exhausted retries always escalate, never silently drop (`OPERATORS.md` failure tables). |
 | `retry_demo_profile` | 1 attempt, no backoff | Used only when `demo_mode` is on (demo recording): a live demo cannot afford up to 85s of dead air per failed write chain (`RISKS.md` R-23). |

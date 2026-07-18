@@ -50,10 +50,11 @@ Point at the actual Orchestrator workflow in Auto while saying this — showing 
 this beat *evidence*, not narration.
 
 ### Beat 3 — Live Run: New-Hire Intake (1:30–2:05)
-Submit a live Typeform entry for a new hire on screen. Show the record land, normalized, in Airtable
-within seconds. Trigger the Orchestrator (event path, `ARCHITECTURE.md` §3.1) for this hire live.
+Submit a live Typeform entry for a new hire on screen. Show the record land, normalized, in `Workers`
+(Supabase, `DECISIONS.md` ADR-001 amendment) within seconds. Trigger the Orchestrator (event path,
+`ARCHITECTURE.md` §3.1) for this hire live.
 
-> "That's a real Typeform submission, a real write to Airtable, and the Orchestrator picking it up
+> "That's a real Typeform submission, a real write to Supabase, and the Orchestrator picking it up
 > automatically — no mock data, no pre-staged screen recording."
 
 ### Beat 4 — Live Exception → Auto Workbench (2:05–2:45) — **non-negotiable, must be live**
@@ -139,7 +140,7 @@ the pre-flight check before recording:
 | Gate criterion | Proven in beat | How |
 |---|---|---|
 | Not a single mega-agent | 2, 3, 4 | Named Operators shown individually in Auto; parallel execution visible in the execution trace during beat 3/4 |
-| ≥3 integrations, ≥2 categories | 3, 4, 5 | Typeform (beat 3), Airtable (all beats, visible in workspace), Slack (beats 4, 5) |
+| ≥3 integrations, ≥2 categories | 3, 4, 5 | Typeform (beat 3), Supabase (beat 3, `Workers` write) + Airtable (beats 4–5, visible in workspace), Slack (beats 4, 5) |
 | ≥1 live exception to Workbench | 4 | Workbench UI shown with the case live |
 | Demonstrable parallel/branching/stateful | 2 (parallel), 4/5 (branching), narration only for stateful (90-day clock is harder to show live in 4 minutes — verbally note it, don't fabricate a visual for it) |
 
@@ -171,8 +172,8 @@ For any judge follow-up beyond the video itself (live Q&A, if applicable):
 - [ ] Pre-select and note down: 1 hire for Beat 4 with an `Onboarding_Tasks` row at `Status = Escalated`
       specifically (**not** merely a `Blocked` provisioning row — see Beat 4 above for why this
       distinction is load-bearing), 1 hire for Beat 5 (known sensitive comment), verified against the
-      current state of the seeded Airtable base immediately before recording (data could have shifted
-      from earlier test runs).
+      current state of the seeded dataset (Airtable + Supabase, `DECISIONS.md` ADR-001 amendment)
+      immediately before recording (data could have shifted from earlier test runs).
 - [ ] Confirm Auto Workbench has no leftover unresolved test cases that would confuse the Beat 4 shot.
 - [ ] Confirm the confidential Slack channel is visibly empty of old test messages before Beat 5, or
       scroll to the correct message live rather than showing a cluttered history.
@@ -199,7 +200,7 @@ general-purpose, not a single hardcoded special case built only to clear the gat
 | "How do I know this isn't hardcoded to your sample data?" | Point directly to Beat 6 already having answered this in the video; if asked live, re-run the reseeding utility against a *third*, freshly-generated dataset on the spot | `DATA_FLOW.md` §10, `MASTER_PLAN.md` §10 |
 | "What happens if the LLM classifier gets the confidential call wrong?" | Explain the fail-safe design: low-confidence always routes to a human, never defaults to "not confidential" — the asymmetry is intentional | `OPERATORS.md` §OP-03 Retry Behavior, `DATA_FLOW.md` §7 |
 | "Why isn't 'day-90 retention' measured directly?" | Explain Assumption A-01 openly: the dataset has no ground-truth attrition field, so the system reports **exposure rate** (a real, raw-data-computed number: what % of the cohort has an unresolved risk right now) as the headline, with catch rate as a secondary "and here's how much of that we've already routed" — deliberately not leading with catch rate alone, since that would only measure whether the system acted on cases it generated | `MASTER_PLAN.md` §4.1, `DECISIONS.md` ADR-007 |
-| "Could a business user really change this without an engineer?" | Live-edit one `policy_config` threshold (e.g., `engagement_low_score`) in Airtable/config table in front of them and re-run a case to show the changed behavior | `ARCHITECTURE.md` §7 |
+| "Could a business user really change this without an engineer?" | Live-edit one `policy_config` threshold (e.g., `engagement_low_score`) in Supabase's Table Editor (`DECISIONS.md` ADR-001 amendment) in front of them and re-run a case to show the changed behavior | `ARCHITECTURE.md` §7 |
 | "What happens if Slack is down during judging?" | Explain the retry + escalate-to-Workbench fallback, and that the audit log write is attempted independently either way, so nothing is silently lost | `OPERATORS.md` §OP-04 Retry Behavior |
 | "Why 5 Operators instead of the minimum 2?" | Explain the margin strategy: single-responsibility Operators are individually testable and the extra decomposition is what makes the audit trail and the parallel/branching behavior demonstrable at all, not decoration | `MASTER_PLAN.md` §3, `ARCHITECTURE.md` §2 |
 | "Does the confidential comment ever appear anywhere outside the Workbench?" | No — walk through the contract: only OP-03 reads it, only `_internal_case_payload` carries it, only OP-04's confidential branch consumes that field, never templated into any message, never read by OP-05 | `DATA_FLOW.md` §7 |

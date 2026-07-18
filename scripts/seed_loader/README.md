@@ -1,8 +1,9 @@
 # Reseeding Utility (`scripts/seed_loader/`)
 
 Local, team-operated utility specified in `docs/DATA_FLOW.md` §6 and `docs/DECISIONS.md` ADR-006:
-a schema-driven (column-name-mapped) loader that seeds the Airtable base from a dataset export and can
-be re-run live against a fresh dataset for the demo's hidden-dataset proof (`docs/DEMO.md` Beat 6).
+a schema-driven (column-name-mapped) loader that seeds Airtable and Supabase (per-table, `schema.py`'s
+`TableSchema.backend` — `DECISIONS.md` ADR-001's amendment) from a dataset export and can be re-run live
+against a fresh dataset for the demo's hidden-dataset proof (`docs/DEMO.md` Beat 6).
 
 ## Contents
 

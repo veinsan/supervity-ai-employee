@@ -140,9 +140,10 @@ judge questions).
    write APIs, and makes each Operator independently testable — critical when the hidden dataset is
    unknown at build time.
 2. **State lives in the system of record, not in the workflow.** The Orchestrator is stateless between
-   runs; the 90-day clock, risk history, and case status are all persisted fields in Airtable. This
-   means a failed or restarted run cannot corrupt state, and the same Orchestrator design works whether
-   triggered on a schedule or on demand.
+   runs; the 90-day clock is derived from `Workers.Hire_Date` (Supabase, `DECISIONS.md` ADR-001
+   amendment), while risk history and case status are persisted fields in Airtable's `Cases & Audit Log`.
+   This means a failed or restarted run cannot corrupt state, and the same Orchestrator design works
+   whether triggered on a schedule or on demand.
 3. **Escalate on uncertainty, never guess.** Every Operator has an explicit "insufficient confidence /
    missing field → escalate" path, per the rules' hard requirement (`CONTEXT.md` §6, "Don't let the AI
    Employee crash or invent a value"). This is treated as a correctness requirement, not a nice-to-have.
@@ -159,7 +160,7 @@ judge questions).
 
 | Phase | Goal | Exit criteria | Maps to |
 |---|---|---|---|
-| **Phase 0 — Foundations** | Platform capabilities verified, systems stood up, dataset seeded, config schema defined | **Epic 0.0 spike passes first** (`DECISIONS.md` ADR-015: Workbench round-trip, visible parallelism, all 3 native connectors, OP-05's Airtable-Interface surface all confirmed); then Airtable base live with correct schema; Slack workspace + 5 channels live (one per `Manager_Directory.Org`, §3.1 M1 fix — never 2); Typeform live; `policy_config` v1 committed | `TASKS.md` Phase 0 |
+| **Phase 0 — Foundations** | Platform capabilities verified, systems stood up, dataset seeded, config schema defined | **Epic 0.0 spike passes first** (`DECISIONS.md` ADR-015: Workbench round-trip, visible parallelism, all 3 native connectors, OP-05's Airtable-Interface surface all confirmed); then Airtable + Supabase live with correct schema (`DECISIONS.md` ADR-001 amendment); Slack workspace + 5 channels live (one per `Manager_Directory.Org`, §3.1 M1 fix — never 2); Typeform live; `policy_config` v1 committed (Supabase) | `TASKS.md` Phase 0 |
 | **Phase 1 — Detection Operators** | OP-01, OP-02, OP-03 built and independently testable | Each Operator returns correct output on 5 hand-picked test hires covering each seeded trap type | `TASKS.md` Phase 1 |
 | **Phase 2 — Orchestration & Action** | ORCH-01 and OP-04 built, parallel + branching wired | End-to-end run on the full 60-worker cohort completes without crash; at least 3 branch types observed | `TASKS.md` Phase 2 |
 | **Phase 3 — Robustness & Hidden-Dataset Rehearsal** | Reseeding utility built; adversarial test dataset authored and run | Build survives a hand-authored "trap-heavy" dataset with malformed dates, blanks, name variants, and duplicate rows without crashing or misrouting | `TASKS.md` Phase 3 |
@@ -175,7 +176,9 @@ if the team is 2 people (see `TASKS.md` dependency graph).
 
 Summarized here; full detail and per-integration justification in `INTEGRATIONS.md`.
 
-- **System of record: Airtable** — hosts all 5 dataset tables plus derived case/audit records.
+- **System of record: Airtable + Supabase** — hosts all 5 dataset tables plus derived case/audit
+  records; `Workers`, `Manager_Directory`, and `policy_config` now live on Supabase, the rest remain on
+  Airtable (`DECISIONS.md` ADR-001 amendment).
 - **Channel: Slack** — two logical channels: a manager-nudge channel (routed by `Org`, via
   `Manager_Directory`) and a confidential HR-only channel for sensitive disclosures.
 - **Forms: Typeform** — the "a way in" new-hire intake path named explicitly in the problem statement's
@@ -239,7 +242,8 @@ workspace itself (`CONTEXT.md` §8). "Deployment" for Round 1 therefore means:
    submission time.
 2. All three required integrations are connected with live, non-expired credentials at submission time
    and will remain live through the judging window (20–24 July).
-3. The Airtable base, Slack workspace, and Typeform form are not deleted, renamed, or re-permissioned
+3. The Airtable base, Supabase project, Slack workspace, and Typeform form are not deleted, renamed, or
+   re-permissioned
    between submission and judging — a private checklist item, not a technical task.
 
 Round 2 deployment (Auto Runtime / Auto Manager Console / GitHub starter repo) is explicitly **out of

@@ -29,7 +29,7 @@ property in the whole system — see `MASTER_PLAN.md` §10.
 flowchart LR
     A["Source file<br/>(xlsx or csv set)"] --> B["Reseeding Utility"]
     B --> C{"Schema<br/>validation"}
-    C -->|pass| D["Airtable tables<br/>(Workers, Onboarding_Tasks,<br/>Provisioning_Integration,<br/>Peakon_Engagement,<br/>Manager_Directory)"]
+    C -->|pass| D["Supabase: Workers, Manager_Directory<br/>Airtable: Onboarding_Tasks,<br/>Provisioning_Integration,<br/>Peakon_Engagement<br/>(split — DECISIONS.md ADR-001 amendment)"]
     C -->|fail: missing/renamed column| E["Abort with a clear,<br/>column-level error report<br/>(never a partial silent load)"]
     F["Typeform submission"] --> G["OP-01"]
     G --> D
@@ -98,8 +98,10 @@ design (`ARCHITECTURE.md` §2) and keeps every transformation traceable to exact
 ## 6. Persistence & the Reseeding Utility
 
 **Design decision (`DECISIONS.md` ADR-006):** a standalone, schema-driven loader that maps source
-columns to Airtable fields **by name**, re-runnable at any time against any dataset matching the
-documented schema (`CONTEXT.md` §12.6, `Field_Dictionary.csv`), including the hidden judging dataset.
+columns to their destination fields **by name** — Supabase for `Workers`/`Manager_Directory`, Airtable
+for the rest, per `TableSchema.backend` (`DECISIONS.md` ADR-001 amendment) — re-runnable at any time
+against any dataset matching the documented schema (`CONTEXT.md` §12.6, `Field_Dictionary.csv`),
+including the hidden judging dataset.
 
 Requirements on the utility (implementation detail for `TASKS.md`, not designed here beyond contract):
 - Runs as a **local script** operated by the team (not an Auto Operator) — Supervity Auto's no-code
