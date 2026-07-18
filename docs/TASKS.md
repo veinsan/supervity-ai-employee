@@ -65,7 +65,7 @@ own acceptance criteria above. (Matches `MASTER_PLAN.md` §7 Phase 0 row.)
 |---|---|---|---|---|---|---|
 | 1.1.1 | Done | Build OP-01 field validation step per `OPERATORS.md` §OP-01 Inputs/Validation | P0 | M | 0.2.2 | All required-field checks implemented; missing/malformed required field routes to escalation, not a crash |
 | 1.1.2 | Done | Wire date parsing (0.2.2) and manager resolution (against `Manager_Directory`) into OP-01 | P0 | M | 1.1.1, 0.2.2 | Unparseable `Hire_Date` escalates; ambiguous manager match (0 or >1 candidates) escalates |
-| 1.1.3 | Not Started | Wire fuzzy-dedup (0.2.3) into OP-01's write path | P0 | M | 1.1.1, 0.2.3 | Above `dedup_confidence_threshold` → update existing record; below `dedup_flag_band_low` → create new; in between → escalate |
+| 1.1.3 | Done | Wire fuzzy-dedup (0.2.3) into OP-01's write path | P0 | M | 1.1.1, 0.2.3 | Above `dedup_confidence_threshold` → update existing record; below `dedup_flag_band_low` → create new; in between → escalate |
 | 1.1.4 | Not Started | Wire Airtable write + retry/escalation per `OPERATORS.md` §OP-01 Retry/Failure tables | P0 | S | 1.1.1–1.1.3, 0.1.4 | Simulated Airtable failure (disconnect integration briefly) correctly retries 3x then escalates with tag `intake_integration_failure` |
 | 1.1.5 | Not Started | Connect Typeform trigger (0.1.3) to OP-01 | P0 | S | 1.1.4, 0.1.4 | Live Typeform submission produces a correctly normalized `Workers` row within a few seconds |
 | 1.1.6 | Not Started | Unit test OP-01 against 5 hand-picked cases: clean new hire, name-variant duplicate, unparseable date, ambiguous manager, missing required field | P0 | M | 1.1.5 | All 5 cases produce the exact expected outcome (create / update / 3 distinct escalation types) |
