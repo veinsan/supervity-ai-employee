@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """Reseeding utility — TASKS.md 3.1/3.2, contract in docs/DATA_FLOW.md §6.
 
-Loads the 5 source CSVs into the Airtable base, schema-driven (column-name-mapped, ADR-006) so the
-same code runs unchanged against the hidden judging dataset. Applies DATA_FLOW.md §3 steps 1/2/4
+Loads the 5 source CSVs into their destination tables, schema-driven (column-name-mapped, ADR-006) so
+the same code runs unchanged against the hidden judging dataset. Applies DATA_FLOW.md §3 steps 1/2/4
 (whitespace+casing, date parsing, numeric coercion) per row — never step 3 (fuzzy-dedup): the seed
 file's workers are already distinct, verified records, so a fuzzy pass over them only risks a false
 merge for no benefit (fuzzy_dedup.py is OP-01's live Typeform intake path only).
 
+Backend is per-table (schema.py's TableSchema.backend, Airtable -> Supabase migration in progress):
+Workers/Manager_Directory write through Supabase, Onboarding_Tasks/Provisioning_Integration/
+Peakon_Engagement still write through Airtable. "Cases & Audit Log" (--reset only) always stays on
+Airtable — it isn't one of the 5 CSV-driven TABLES at all.
+
 Usage:
-    python3 loader.py                 # reseed from dataset/csv against the live Airtable base
-    python3 loader.py --dry-run       # validate + normalize only, no Airtable writes
+    python3 loader.py                 # reseed from dataset/csv against the live backends
+    python3 loader.py --dry-run       # validate + normalize only, no writes to either backend
     python3 loader.py --reset         # also clear Cases & Audit Log first (never source tables)
 """
 
@@ -27,6 +32,7 @@ from pathlib import Path
 from airtable_client import AirtableClient, AirtableError
 from normalize import ParseStatus, load_policy_config, normalize_name, normalize_text, parse_date
 from schema import TABLES
+from supabase_client import SupabaseClient, SupabaseError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATASET_DIR = REPO_ROOT / "dataset" / "csv"
@@ -142,7 +148,7 @@ def build_report() -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dataset-dir", default=str(DEFAULT_DATASET_DIR), help="Directory containing the source CSVs.")
-    parser.add_argument("--env-file", default=str(DEFAULT_ENV_PATH), help="Path to .env with AIRTABLE_BASE_ID/AIRTABLE_TOKEN.")
+    parser.add_argument("--env-file", default=str(DEFAULT_ENV_PATH), help="Path to .env with AIRTABLE_BASE_ID/AIRTABLE_TOKEN and SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY.")
     parser.add_argument("--reset", action="store_true", help="Clear Cases & Audit Log before reseeding (never source tables).")
     parser.add_argument("--dry-run", action="store_true", help="Validate + normalize only; do not write to Airtable.")
     args = parser.parse_args()
@@ -157,33 +163,44 @@ def main() -> int:
             print(f"  {csv_file}: missing/renamed column(s): {', '.join(missing)}", file=sys.stderr)
         return 1
 
-    client = None
+    airtable_client = None
+    supabase_client = None
     if not args.dry_run:
         base_id = os.environ.get("AIRTABLE_BASE_ID")
         token = os.environ.get("AIRTABLE_TOKEN")
+        supabase_url = os.environ.get("SUPABASE_URL")
+        supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
         if not base_id or not token:
             print("ERROR: AIRTABLE_BASE_ID / AIRTABLE_TOKEN not set (check .env)", file=sys.stderr)
             return 1
+        if not supabase_url or not supabase_key:
+            print("ERROR: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set (check .env)", file=sys.stderr)
+            return 1
         policy_for_retry = load_policy_config()
-        client = AirtableClient(base_id, token, retry=policy_for_retry["retry"])
+        airtable_client = AirtableClient(base_id, token, retry=policy_for_retry["retry"])
+        supabase_client = SupabaseClient(supabase_url, supabase_key, retry=policy_for_retry["retry"])
+
+    clients = {"airtable": airtable_client, "supabase": supabase_client}
 
     policy = load_policy_config()
     report = build_report()
+    report["backend"] = {table.airtable_table: table.backend for table in TABLES}
 
-    if args.reset and client:
-        report["reset_cases_deleted"] = client.delete_all("Cases & Audit Log")
+    if args.reset and airtable_client:
+        report["reset_cases_deleted"] = airtable_client.delete_all("Cases & Audit Log")
 
     start = time.time()
     try:
         for table in TABLES:
             records = load_table(table, dataset_dir, policy, report)
-            if client:
-                written = client.upsert_batch(table.airtable_table, table.natural_key, records)
+            backend_client = clients[table.backend]
+            if backend_client:
+                written = backend_client.upsert_batch(table.airtable_table, table.natural_key, records)
                 report["written"][table.airtable_table] = len(written)
             else:
                 report["written"][table.airtable_table] = 0
-    except AirtableError as exc:
-        print(f"ERROR: Airtable write failed: {exc}", file=sys.stderr)
+    except (AirtableError, SupabaseError) as exc:
+        print(f"ERROR: {table.backend} write failed for {table.airtable_table}: {exc}", file=sys.stderr)
         return 1
     report["elapsed_seconds"] = round(time.time() - start, 2)
     report["mode"] = "dry-run" if args.dry_run else "live"

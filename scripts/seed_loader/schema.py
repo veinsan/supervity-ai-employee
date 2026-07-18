@@ -6,7 +6,12 @@ Column lists are transcribed from `Field_Dictionary.csv` / the public sample's o
 hidden judging dataset as long as it matches this documented schema.
 
 `natural_key` is the column each table upserts on (`DATA_FLOW.md` §6/§9) — used both for in-file exact-
-duplicate collapsing and as Airtable's `performUpsert.fieldsToMergeOn` merge key.
+duplicate collapsing and as the upsert merge key (Airtable's `performUpsert.fieldsToMergeOn`, or
+Supabase's `?on_conflict=`, depending on `backend`).
+
+`backend` (Airtable -> Supabase migration, in progress) picks which client loader.py writes the table
+through: Workers and Manager_Directory are on Supabase; Onboarding_Tasks, Provisioning_Integration, and
+Peakon_Engagement are still on Airtable pending their own Operators (OP-02/OP-03) being built.
 """
 
 from __future__ import annotations
@@ -24,6 +29,11 @@ class TableSchema:
     name_fields: FrozenSet[str] = field(default_factory=frozenset)
     date_fields: FrozenSet[str] = field(default_factory=frozenset)
     numeric_fields: FrozenSet[str] = field(default_factory=frozenset)
+    # Which loader.py client writes this table. "airtable_table" keeps its name even for
+    # Supabase-backed tables (the value is still the destination table name, just read by a
+    # different client) — renaming it would touch loader.py/test_loader.py's already-tested
+    # field-name references for a cosmetic gain only, so it's deliberately left as-is.
+    backend: str = "airtable"  # "airtable" | "supabase"
 
 
 TABLES = [
@@ -31,6 +41,7 @@ TABLES = [
         csv_file="Workers.csv",
         airtable_table="Workers",
         natural_key="Employee_ID",
+        backend="supabase",
         columns=[
             "Employee_ID", "Worker_WID", "Legal_Name", "Preferred_Name", "Business_Title",
             "Job_Profile", "Job_Family", "Management_Level", "Position_ID", "Manager_Name",
@@ -78,6 +89,7 @@ TABLES = [
         csv_file="Manager_Directory.csv",
         airtable_table="Manager_Directory",
         natural_key="Manager_WID",
+        backend="supabase",
         columns=["Manager_WID", "Employee_ID", "Name", "Email_Work", "Org"],
         name_fields=frozenset({"Name"}),
     ),
