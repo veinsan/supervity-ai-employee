@@ -9,9 +9,10 @@ hidden judging dataset as long as it matches this documented schema.
 duplicate collapsing and as the upsert merge key (Airtable's `performUpsert.fieldsToMergeOn`, or
 Supabase's `?on_conflict=`, depending on `backend`).
 
-`backend` (Airtable -> Supabase migration, in progress) picks which client loader.py writes the table
-through: Workers and Manager_Directory are on Supabase; Onboarding_Tasks, Provisioning_Integration, and
-Peakon_Engagement are still on Airtable pending their own Operators (OP-02/OP-03) being built.
+`backend` picks which client loader.py writes the table through. Airtable is fully deprecated
+(`DECISIONS.md` ADR-001's second amendment) — every table here is Supabase now. The field is kept
+(rather than deleted) purely so a future re-split, if ever needed, is a one-line change per table
+instead of reintroducing the concept from scratch.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ class TableSchema:
     # Supabase-backed tables (the value is still the destination table name, just read by a
     # different client) — renaming it would touch loader.py/test_loader.py's already-tested
     # field-name references for a cosmetic gain only, so it's deliberately left as-is.
-    backend: str = "airtable"  # "airtable" | "supabase"
+    backend: str = "supabase"  # "airtable" | "supabase" — see module docstring
 
 
 TABLES = [
@@ -59,6 +60,7 @@ TABLES = [
         csv_file="Onboarding_Tasks.csv",
         airtable_table="Onboarding_Tasks",
         natural_key="Event_ID",
+        backend="supabase",
         columns=[
             "Event_ID", "Employee_ID", "Business_Process", "Step_Name", "Milestone",
             "Due_Date", "Status", "Completed_Date", "Assigned_To_Role",
@@ -69,6 +71,7 @@ TABLES = [
         csv_file="Provisioning_Integration.csv",
         airtable_table="Provisioning_Integration",
         natural_key="Integration_Event_ID",
+        backend="supabase",
         columns=[
             "Integration_Event_ID", "Employee_ID", "Resource", "Requested_On", "Status", "Fulfilled_On",
         ],
@@ -78,6 +81,7 @@ TABLES = [
         csv_file="Peakon_Engagement.csv",
         airtable_table="Peakon_Engagement",
         natural_key="Response_ID",
+        backend="supabase",
         columns=[
             "Response_ID", "Employee_ID", "Survey_Round", "Milestone", "Driver", "Score",
             "Comment", "Submitted_At",

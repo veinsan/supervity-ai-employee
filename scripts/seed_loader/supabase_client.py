@@ -15,11 +15,14 @@ wire format because PostgREST's upsert/auth/pagination semantics differ from Air
 - `delete_all` is a single DELETE with a match-everything filter (PostgREST rejects a filter-less
   DELETE outright — verified against the live project, see the method's docstring) rather than
   Airtable's list-ids-then-batch-delete dance; there's no synthetic per-record ID to collect first.
+- `upsert_batch` pads every row in a chunk to the same set of keys before sending (missing key ->
+  JSON `null`). PostgREST's bulk insert requires every object in the array to have identical keys
+  ("All object keys must match", verified against the live project on a real payload — a table
+  like Onboarding_Tasks has rows with and without Completed_Date, which Airtable tolerated
+  per-record but Postgres's array-insert does not). Airtable's client never needed this because it
+  sends one record's fields at a time inside the batch body, not a uniform array shape.
 
-Only covers the tables actually migrated so far: Workers, Manager_Directory, policy_config
-(see config/supabase_schema.sql). Onboarding_Tasks, Provisioning_Integration, Peakon_Engagement,
-and "Cases & Audit Log" still live in Airtable — loader.py is not yet wired to route per-table
-between this client and airtable_client.py; that's the next step, not done here.
+Covers all 7 tables — Airtable is fully deprecated (`DECISIONS.md` ADR-001's second amendment).
 """
 
 from __future__ import annotations
@@ -91,12 +94,14 @@ class SupabaseClient:
         for chunk in _chunks(list(field_rows), BATCH_SIZE):
             if not chunk:
                 continue
+            all_keys = set().union(*(row.keys() for row in chunk))
+            padded = [{key: row.get(key) for key in all_keys} for row in chunk]
             result = self._request(
                 "POST",
                 url,
                 params={"on_conflict": key_field},
                 headers={"Prefer": "resolution=merge-duplicates,return=representation"},
-                json=chunk,
+                json=padded,
             )
             written.extend(result or [])
         return written
