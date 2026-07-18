@@ -1,5 +1,4 @@
 # AUTO_BUILD_GUIDE.md — Operator Build Prompts & Test Cases
-
 **Purpose:** copy-paste-ready prompts for Supervity Auto's AI Operator builder, one per `TASKS.md`
 sub-task, each paired with the test cases needed to confirm its Acceptance Criteria. This is a build
 runbook, not a redesign — every prompt implements the frozen spec in `OPERATORS.md`. Read a task's
@@ -10,7 +9,7 @@ runbook, not a redesign — every prompt implements the frozen spec in `OPERATOR
 
 **How to use each section:**
 1. Paste the **Prompt** block into Auto's Operator builder (continue the named Operator, don't start a new one).
-2. Bind any highlighted Airtable/Supabase step to the matching Path 2 REST credential (see Conventions §A — §A1 Airtable, §A2 Supabase).
+2. Bind any highlighted data-write/read step to the Supabase Path 2 REST credential (see Conventions §A).
 3. If Auto asks a clarifying question or asks you to confirm before running/saving, answer directly and
    explicitly — a concrete decision or a clear "yes, proceed." A vague or unanswered prompt is the most
    common way these builds stall.
@@ -24,7 +23,7 @@ Per Auto's own best-practice guide, translated to this project's specifics:
 | Auto keeps asking instead of building, or nothing happens | Reply with one concrete decision, or re-paste the **Goal** line plus just the step you're stuck on. |
 | "Waiting for approval" or similar | Send an explicit yes/no, or list exactly what to change, before anything else. |
 | Plan keeps changing, or the same error repeats | Narrow the ask to the single **STEP** that's failing rather than re-pasting the whole multi-step prompt. |
-| Auto picks the wrong data source or tool | State the correct one explicitly — e.g. "use the Supabase REST credential (§A2), not the native Airtable connector — Workers isn't in Airtable anymore." |
+| Auto picks the wrong data source or tool | State the correct one explicitly — e.g. "use the Supabase REST credential (§A), not the native/old Airtable connector — nothing lives in Airtable anymore." |
 | Run blocked after you finish building | Open the Operator's/workspace's integration settings and finish any pending connection or authorization — check §A/§B for which one this step needs. |
 | Transient failure | Retry once; if it repeats, describe the last message you saw rather than pasting a raw technical error. |
 | The build conversation gets long or confused across several continue-prompts | Start a fresh Auto chat against the Operator's current saved version, then paste the next prompt there — keeps context clean without losing prior build progress. |
@@ -33,52 +32,36 @@ Per Auto's own best-practice guide, translated to this project's specifics:
 
 ## Conventions (read once, applies to every prompt below)
 
-### §A — Two REST backends, both Path 2 (custom REST API), NEITHER a native connector
-`DECISIONS.md` ADR-001's amendment: `Workers`, `Manager_Directory`, and `policy_config` moved to Supabase;
-`Onboarding_Tasks`, `Provisioning_Integration`, `Peakon_Engagement`, and `Cases & Audit Log` are still on
-Airtable. Every read/write to either is a **custom REST API call** — this workspace has no native
-connector for Airtable (spike `0.0.3` fallback) or Supabase. Do **not** use a native "Airtable" or
+### §A — Supabase, Path 2 (custom REST API), NOT a native connector
+`DECISIONS.md` ADR-001's second amendment: **Airtable is fully deprecated.** Every table —
+`Workers`, `Manager_Directory`, `policy_config`, `Onboarding_Tasks`, `Provisioning_Integration`,
+`Peakon_Engagement`, `Cases_Audit_Log` — lives on Supabase now. Every read/write is a **custom REST API
+call** — this workspace has no native Supabase/Postgres connector. Do **not** use a native "Airtable" or
 "Supabase"/"Postgres" action block — it will show a "requires integration connected" error with no
-selectable connection. Use an HTTP/custom API request instead, bound to the matching credential below.
+selectable connection. Use an HTTP/custom API request instead, bound to the Supabase REST credential
+below.
 
-> **Gotcha:** the Airtable base still physically has a `Workers` table left over from before the
-> migration (and possibly `Manager_Directory`/`policy_config` too). Auto's builder may default to
-> suggesting it since it's the already-connected Airtable credential. Don't use it — Workers/
-> Manager_Directory/policy_config reads and writes go to Supabase only, per the table list in §E.
+> **Gotcha:** the old Airtable base still physically exists with all 6 original tables from before the
+> migration. Auto's builder may default to suggesting it since it's still a connected credential in this
+> workspace. Don't use it, for anything, ever — every table now lives in Supabase only.
 
-**§A1 — Airtable** (still used by `1.2.x`/`1.3.x`/`2.1.3`/`2.1.4` — Onboarding_Tasks, Provisioning_Integration,
-Peakon_Engagement, Cases & Audit Log):
-
-| Property | Value |
-|---|---|
-| API root | `https://api.airtable.com/v0/{AIRTABLE_BASE_ID}` |
-| Auth header | `Authorization: Bearer {AIRTABLE_TOKEN}` |
-| Content type | `Content-Type: application/json` |
-| Create/upsert | `PATCH .../{table}` with body `{"performUpsert":{"fieldsToMergeOn":["<key>"]},"typecast":true,"records":[{"fields":{...}}]}` |
-| Plain create | `POST .../{table}` with body `{"typecast":true,"records":[{"fields":{...}}]}` |
-| Read/filter | `GET .../{table}?filterByFormula=<url-encoded formula>` |
-
-`{AIRTABLE_BASE_ID}` and `{AIRTABLE_TOKEN}` are in your `.env`. **Table-name encoding:** `Cases & Audit Log`
-contains a space and `&` — use its **table ID** (`tbl…`, copy from
-`https://airtable.com/{AIRTABLE_BASE_ID}/api/docs`) instead of the name to avoid URL-encoding bugs, or
-URL-encode as `Cases%20%26%20Audit%20Log`.
-
-**§A2 — Supabase** (used by `1.1.4` — Workers, Manager_Directory, policy_config), verified live against
-the project before writing this:
+Verified live against the project before writing this:
 
 | Property | Value |
 |---|---|
 | API root | `https://{SUPABASE_PROJECT_REF}.supabase.co/rest/v1` |
 | Auth headers | **both** required — `apikey: {SUPABASE_SERVICE_ROLE_KEY}` AND `Authorization: Bearer {SUPABASE_SERVICE_ROLE_KEY}`. Missing either → rejected. |
 | Content type | `Content-Type: application/json` |
-| Create/upsert | `POST .../{table}?on_conflict=<key column, e.g. Worker_WID>` with header `Prefer: resolution=merge-duplicates,return=representation` and body a **bare JSON array** `[{...fields...}]` — no `records`/`fields` envelope, that's Airtable's shape, not this one |
+| Create/upsert | `POST .../{table}?on_conflict=<key column, e.g. Worker_WID>` with header `Prefer: resolution=merge-duplicates,return=representation` and body a **bare JSON array** `[{...fields...}]` — no `records`/`fields` envelope, that was Airtable's shape |
 | Read/filter | `GET .../{table}?{column}=eq.<value>&select=*` |
 | Delete | requires an explicit filter — PostgREST rejects a filter-less `DELETE` outright (`400: DELETE requires a WHERE clause`) |
 
 `{SUPABASE_URL}` (= `https://{SUPABASE_PROJECT_REF}.supabase.co`) and `{SUPABASE_SERVICE_ROLE_KEY}` are in
 your `.env`. Column names are quoted mixed-case in the DB (`config/supabase_schema.sql`) but work
-unquoted in URLs/JSON keys the same way Airtable's do — no extra encoding needed for any of `Worker_WID`,
-`Manager_WID`, `field_key`.
+unquoted in URLs/JSON keys — no extra encoding needed for any of `Worker_WID`, `Manager_WID`, `field_key`.
+One table's name changed shape on migration: Airtable's `Cases & Audit Log` (space + `&`, needed a table
+ID to avoid URL-encoding bugs) is `Cases_Audit_Log` in Supabase — plain underscore, no encoding gymnastics
+needed at all.
 
 ### §B — Slack is native; Typeform is native but poll-based, not push-webhook
 Slack send (`2.1.3`) uses the native Slack connector, posting to a channel **ID** (not name) — connected
@@ -89,9 +72,9 @@ single-outcome-out; per `1.1.5`, a small **Parent Workflow** polls Typeform and 
 individual submission returned, so OP-01 itself never has to change to handle a batch.
 
 ### §C — Retry + demo_mode (folds in task `0.2.4`)
-Every **write-side** step (Supabase write, Airtable write, Slack send) wraps its call in this retry logic
-— identical shape regardless of which REST backend the step targets. This implements `0.2.4` for OP-01
-and OP-04 at the same time — mark `0.2.4` Done once both are built and the demo_mode toggle is verified.
+Every **write-side** step (Supabase write, Slack send) wraps its call in this retry logic — identical
+shape regardless of target. This implements `0.2.4` for OP-01 and OP-04 at the same time — mark `0.2.4`
+Done once both are built and the demo_mode toggle is verified.
 
 1. Read `policy_config` row `field_key = "demo_mode"` → boolean `demo_mode`.
 2. If `demo_mode` is `true`, read row `field_key = "retry_demo_profile"` → `{max_attempts:1, backoff_seconds:[]}`.
@@ -115,8 +98,7 @@ implicit system clock directly.
 
 | Thing | Value |
 |---|---|
-| Supabase tables (§A2) | `Workers`, `Manager_Directory`, `policy_config` |
-| Airtable tables (§A1) | `Onboarding_Tasks`, `Provisioning_Integration`, `Peakon_Engagement`, `Cases & Audit Log` |
+| Supabase tables (§A) | `Workers`, `Manager_Directory`, `policy_config`, `Onboarding_Tasks`, `Provisioning_Integration`, `Peakon_Engagement`, `Cases_Audit_Log` — all 7, Airtable fully deprecated |
 | Manager-nudge channels (by `Manager_Directory.Org`) | Finance `C0BJA0P1M6V` · Sales `C0BJBQ02U2Y` · Ops `C0BHSMV328P` · Engineering `C0BJ4PYGV5K` · People `C0BJ4PZ8961` |
 | IT-escalation channel | `C0BJ839B24A` |
 | Confidential HR channel | `C0BK2CRJ596` |
@@ -130,8 +112,8 @@ are reasonable defaults, safe to change — search "ASSUMPTION" in this doc to r
 | # | Where | Call made |
 |---|---|---|
 | 1 | `2.1.2` `requested_on` | Not in OP-04 inputs; pulled from the matching reason's `task_or_resource_ref`/`detail` if present, else rendered `"unknown"`. |
-| 2 | `2.1.2` `case_link` | Optional OP-04 input `workbench_case_link` if provided; else the Cases & Audit Log record URL written in `2.1.4`. |
-| 3 | `2.1.4` `case_id` | A UUID generated at OP-04 start, written into both the message templates and a `case_id` field on the audit row (add the field if absent). |
+| 2 | `2.1.2` `case_link` | Optional OP-04 input `workbench_case_link` if provided; else a plain text reference `"Case {case_id} — see Cases_Audit_Log"` (revised, `DECISIONS.md` ADR-001 second amendment — Supabase has no Airtable-style automatic record URL to fall back to). |
+| 3 | `2.1.4` `case_id` | A UUID generated at OP-04 start, written into both the message templates and `Cases_Audit_Log.case_id` (already the table's primary key, `config/supabase_schema.sql` — no field to add). |
 | 4 | `1.1.4` Worker_WID | New hires get a generated UUID v4 as `Worker_WID`; the write always upserts on `Worker_WID`, so create vs update is decided by whether that WID already exists. |
 
 ### §G — Platform-capability checks (verify these exist in Auto before relying on them)
@@ -167,9 +149,8 @@ Hire_Date, the resolved Manager_WID and Manager_Org, and the dedup decision
 (intake_result = "will_update" with a matched_worker_wid, OR "will_create").
 
 STEP — Write the normalized Worker to Supabase (custom REST API, not a native
-Airtable/Postgres action; use the Supabase REST credential, §A2 — NOT the
-Airtable credential, and NOT the leftover "Workers" table that still physically
-exists in Airtable from before the migration).
+action; use the Supabase REST credential, §A — NOT the old Airtable credential
+or its leftover "Workers" table, which are fully deprecated).
 
 1. Determine the Worker_WID to write:
    - If intake_result = "will_update": use the matched_worker_wid from the dedup
@@ -330,9 +311,9 @@ replace that placeholder.
 
 > **Check before continuing:** `2.1.2`'s templating step reads a `Workers` row that `2.1.1`'s
 > channel/manager resolution already looked up (for `preferred_name`). If `2.1.1` was built pointing at
-> Airtable's `Workers` table, that table no longer exists as the system of record — repoint that lookup to
-> Supabase (§A2) before building `2.1.2`, or it will read stale/absent data silently rather than fail
-> loudly.
+> the old Airtable `Workers`/`Manager_Directory` tables, repoint both lookups to Supabase (§A) before
+> building `2.1.2` — Airtable is now fully deprecated, and a stale pointer here reads
+> absent/frozen-in-time data silently rather than failing loudly.
 
 > **Confidentiality is the highest-stakes rule in this Operator.** A real disclosure leaking into a
 > manager/IT message or the general audit log is "the single worst failure mode in the whole build"
@@ -391,8 +372,10 @@ STEP — Render the outbound message from policy_config templates.
    - milestone: for confidential_disclosure ONLY, read
      internal_case_payload.milestone.
    - case_link: for confidential_disclosure ONLY, use the input
-     workbench_case_link if provided, otherwise leave a placeholder that the
-     audit-log step will fill with the written case record's URL.
+     workbench_case_link if provided; otherwise render the literal text
+     "Case {case_id} — see Cases_Audit_Log" (Supabase has no Airtable-style
+     automatic record URL to fall back to, so this resolves fully here — no
+     later step needs to fill anything in).
 
 3. Render the template for the case_type by substituting {{...}} placeholders
    with the values above.
@@ -483,7 +466,7 @@ step still runs, then revert.
 
 ---
 
-### `2.1.4` — Cases & Audit Log write (every case type, incl. `workbench_log`)
+### `2.1.4` — Cases_Audit_Log write (every case type, incl. `workbench_log`)
 
 **Prompt:**
 ```
@@ -496,11 +479,13 @@ the audit-log write. It runs for EVERY case_type, including workbench_log and
 including cases where the Slack send failed/escalated. Exactly one audit row per
 Operator run.
 
-STEP — Write one case record to the "Cases & Audit Log" Airtable table (custom
-REST API, not native; existing Airtable REST credential).
+STEP — Write one case record to Supabase's Cases_Audit_Log table (custom REST
+API, not native; use the Supabase REST credential, §A — NOT the old Airtable
+credential or its leftover "Cases & Audit Log" table, which are deprecated).
 
 1. Build the audit fields:
-   - case_id: the UUID generated at the start of this Operator.
+   - case_id: the UUID generated at the start of this Operator (this is also
+     Cases_Audit_Log's primary key — no separate field needs adding).
    - timestamp: the current time (or as_of_date if policy_config as_of_date is
      pinned), ISO 8601.
    - employee_id: from input.
@@ -518,27 +503,31 @@ REST API, not native; existing Airtable REST credential).
    case's existence, milestone-free, is recorded.
 
 2. Write it:
-     POST https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{Cases & Audit Log table ID}
-     Headers: Authorization: Bearer {AIRTABLE_TOKEN}, Content-Type: application/json
-     Body: { "typecast": true, "records": [ { "fields": { ...audit fields... } } ] }
-   (Use the table's tbl... ID to avoid encoding the space and & in the name.)
+     POST https://{SUPABASE_PROJECT_REF}.supabase.co/rest/v1/Cases_Audit_Log?on_conflict=case_id
+     Headers: apikey: {SUPABASE_SERVICE_ROLE_KEY},
+       Authorization: Bearer {SUPABASE_SERVICE_ROLE_KEY},
+       Content-Type: application/json,
+       Prefer: resolution=merge-duplicates,return=representation
+     Body: [ { ...the audit fields from step 1... } ]
+   (A bare JSON array, not an Airtable-style "records"/"fields" wrapper. Every
+   run generates a fresh case_id, so this upsert behaves as a plain insert in
+   practice — on_conflict is included only for safety against an accidental
+   re-run with the same case_id.)
 
 3. Apply the same write-side retry profile (demo_mode-aware) as OP-01/2.1.3. If
    the audit write itself fails after retries, escalate to the Workbench tagged
    "op04_audit_write_failure" (the audit trail failing is itself a governance
    event worth a human's attention).
 
-4. If a confidential case had a placeholder case_link (no workbench_case_link
-   was supplied), fill it with this audit record's URL now.
-
-5. Output the final Operator result:
-   { status: <outcome>, case_record_id: <written record id>,
+4. Output the final Operator result:
+   { status: <outcome>, case_record_id: <case_id>,
      channel_used: <channel> }
 ```
 
-> If the `Cases & Audit Log` table has no `case_id` field, add one (single-line text) — ASSUMPTION #3.
-> The six spec fields (`timestamp`, `employee_id`, `case_type`, `channel`, `policy_rules_fired`, `outcome`)
-> come from `0.1.1`.
+> `case_link` (used by `2.1.2`'s confidential template) no longer depends on this step — it resolves
+> fully in `2.1.2` itself now, either from `workbench_case_link` or a plain-text case reference, since
+> Supabase has no Airtable-style automatic record URL to fill in after the fact (`DECISIONS.md` ADR-001
+> second amendment, Consequence 3).
 
 **Test cases:**
 

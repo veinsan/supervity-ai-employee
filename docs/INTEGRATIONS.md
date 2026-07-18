@@ -12,22 +12,23 @@ including 1 channel + 1 system of record").
 
 | # | Integration | Category | Required for gate? | Owning Operator(s) |
 |---|---|---|---|---|
-| 1 | Airtable | System of record | **Yes** (satisfies "1 system of record") | OP-02/OP-03 (read), OP-04 (write, `Cases & Audit Log`), OP-05 (read) |
-| 1b | Supabase | System of record | Adds margin (2nd SoR integration, `DECISIONS.md` ADR-001 amendment) | OP-01 (write, `Workers`), OP-04 (read, `Manager_Directory`), every Operator (read `policy_config`) |
+| 1 | Supabase | System of record | **Yes** (satisfies "1 system of record") | OP-01 (write, `Workers`), OP-02/OP-03 (read), OP-04 (read `Manager_Directory`, write `Cases_Audit_Log`), OP-05 (read), every Operator (read `policy_config`) |
 | 2 | Slack | Channel | **Yes** (satisfies "1 channel") | OP-04 (write) |
-| 3 | Typeform | Forms | **Yes** (3rd distinct category — margin above the gate minimum) | OP-01 (trigger source, via the `1.1.5` polling Parent Workflow) |
+| 3 | Typeform | Forms | **Yes** (3rd distinct category, only category-diversity margin remaining — see note below) | OP-01 (trigger source, via the `1.1.5` polling Parent Workflow) |
 | 4 | GitHub | Developer systems | No — bonus only (auditability) | OP-04 (optional stretch write, see `TASKS.md` Phase 4) |
 
-`#` numbering matches the `## N.` section headers below (Supabase is "1b" — a sub-entry of §1, not a new
-numbered section, so every other document's existing `§2`/`§3`/`§4` cross-reference stays valid unchanged).
+*Airtable — deprecated, no longer an active integration.* `DECISIONS.md` ADR-001's second amendment moved
+every table off Airtable; it's kept connected in the workspace only as an inert historical artifact
+(nothing reads or writes to it) and is not part of the gate-evidence count below.
 
-This set already satisfies the gate at Airtable + Slack (1 system of record + 1 channel, 2 categories);
-Typeform adds a 3rd category and Supabase adds a 5th integration in the same SoR category as Airtable —
-both pure margin (`MASTER_PLAN.md` §3) so a single integration failure during judging cannot drop the
-build below the gate threshold. Supabase counts toward the integration total (it's a genuinely distinct
-connected system, own credentials, own REST surface) even though it shares Airtable's category — the gate
-rule counts integrations and categories separately, and this set now clears both minimums with more room
-than before the migration, not less.
+**Gate math (`DECISIONS.md` ADR-001 second amendment, Consequence 2):** Supabase + Slack + Typeform =
+**3 integrations, 3 categories** — this is the gate's bare stated minimum (`CONTEXT.md` §5: "≥3
+integrations, ≥2 categories, incl. 1 channel + 1 SoR") with **zero spare integration margin**, down from
+5 integrations before the full migration. GitHub is optional/bonus and explicitly not counted toward the
+gate by this project's own design (see §4's Qualification Gate Contribution) — wiring it does not restore
+margin. This is an accepted, deliberate trade-off (a single-backend architecture was judged simpler to
+build correctly with a two-person team and the time remaining than maintaining two live data backends
+through the rest of the build) — see `RISKS.md` R-26 for the accepted residual risk and its mitigation.
 
 **Note on the LLM classification call inside OP-03:** this uses Supervity Auto's native LLM step, not a
 new external system connection, so it is **not counted** toward the integration total — it does not
@@ -37,56 +38,62 @@ the gate evidence. This is stated explicitly to avoid any ambiguity when assembl
 
 ---
 
-## 1. System of Record — Airtable + Supabase
+## 1. System of Record — Supabase
 
-`DECISIONS.md` ADR-001's amendment: the system of record split mid-Round-1. `Workers`, `Manager_Directory`,
-and `policy_config` moved to **Supabase**; `Onboarding_Tasks`, `Provisioning_Integration`,
-`Peakon_Engagement`, and the derived `Cases & Audit Log` stayed on **Airtable**. Both count toward the
-gate's "1 system of record" requirement, and both are documented in full below since they're now
-genuinely separate connected systems with their own credentials.
+`DECISIONS.md` ADR-001 (second amendment): Supabase is now the sole system of record for all 7 tables.
+The migration happened in two steps — first `Workers`/`Manager_Directory`/`policy_config` (OP-01's
+tables), then the rest (`Onboarding_Tasks`/`Provisioning_Integration`/`Peakon_Engagement`/
+`Cases_Audit_Log`, the last renamed from Airtable's `Cases & Audit Log` on the move). Airtable is fully
+deprecated — see the Summary Table note above.
 
-### 1a. Airtable
+### Purpose
+Hosts all 7 tables: the 5 source-data tables, `policy_config`, and the derived `Cases_Audit_Log`. The
+single persistent state store for the whole system (`ARCHITECTURE.md` §6).
 
-#### Purpose
-Hosts `Onboarding_Tasks`, `Provisioning_Integration`, `Peakon_Engagement`, and the derived
-`Cases & Audit Log` table. Persistent state store for OP-02/OP-03's detection reads and OP-04's audit
-write (`ARCHITECTURE.md` §6).
-
-#### Category
+### Category
 System of record — explicitly listed as an eligible category alongside CRM/ERP/ticket system/database/
 HRIS (`CONTEXT.md` §5).
 
-#### Why Selected (over alternatives)
-See `DECISIONS.md` ADR-001 for the full comparison against Supabase and a generic spreadsheet. Summary:
-Airtable's native Auto integration path (`CONTEXT.md` §5, "Path 1 — native integration") is the fastest
-route for a no-code Round 1 build, its schema (tables + linked records) maps almost 1:1 onto the
-dataset's 5-sheet structure (`CONTEXT.md` §12), and it is explicitly named as an approved Google
-alternative in both the rules and the problem statement (`CONTEXT.md` §5, §9). It remains the backend
-for the three tables whose Operators (OP-02/OP-03) aren't built yet — no forcing function to move them.
+### Why Selected (over staying on Airtable, over a generic spreadsheet)
+See `DECISIONS.md` ADR-001 (original decision, first amendment, and second amendment) for the full
+history. Summary of the end state: Postgres-backed, stronger for relational queries than Airtable would
+have been for a Round 2 coded console; reached via Path 2 custom REST since no native Auto connector
+exists for it (same situation Airtable was in — `AUTO_BUILD_GUIDE.md` §A). The original Airtable choice
+(fastest no-code Path 1 route, 1:1 schema mapping) was correct for getting Round 1 started quickly; the
+full migration completed once OP-02/03/04/05 hadn't been built yet, meaning zero already-tested logic had
+to be touched to make the move (see the ADR's "Why now, not later" reasoning).
 
-#### Authentication
-Personal/workspace API token, owned by the team (rules §3.1/§3.3: teams must own their own connections —
-`CONTEXT.md` §5). Token scoped to the single Airtable base used for this project only.
+### Authentication
+Project-scoped Supabase `secret` API key (the current-generation equivalent of the legacy `service_role`
+key — full access, bypasses Row Level Security), owned by the team, stored in `.env`
+(`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`) and Auto's credential store, never committed. RLS is off on
+every table — the only caller is this secret key from trusted server-side automation (Auto, and the local
+reseed scripts), never a browser/anon client, so RLS would add no real security boundary here.
 
-#### Data Exchanged
-- **Read:** `Onboarding_Tasks`, `Provisioning_Integration` by OP-02; `Peakon_Engagement` by **OP-03
+### Data Exchanged
+- **Read:** `Onboarding_Tasks`/`Provisioning_Integration` by OP-02; `Peakon_Engagement` by **OP-03
   only** — no other Operator's read scope includes it (see the confidentiality contract, `DATA_FLOW.md`
-  §7). Note: `Manager_Directory` moved to Supabase (§1b) — OP-04 reads it there now, not here.
-- **Write:** `Cases & Audit Log` (OP-04, every notification/escalation outcome).
+  §7); `Manager_Directory` by OP-04; `Workers` by OP-01 (write) and OP-05 (read); `policy_config` by
+  every Operator, every run (retry profile, thresholds, templates — `ARCHITECTURE.md` §7).
+- **Write:** `Workers` (OP-01, new/updated hire records, upsert on `Worker_WID`); `Cases_Audit_Log`
+  (OP-04, every notification/escalation outcome).
 
-#### Read/Write Operations
+### Read/Write Operations
 | Operation | Operator | Table |
 |---|---|---|
+| Write (create/update) | OP-01 | `Workers` |
 | Read | OP-02 | `Onboarding_Tasks`, `Provisioning_Integration` |
 | Read | OP-03 | `Peakon_Engagement` |
-| Write | OP-04 | `Cases & Audit Log` |
-| Read (aggregate) | OP-05 | `Onboarding_Tasks`, `Provisioning_Integration`, `Cases & Audit Log` — **never** `Peakon_Engagement`, by design (`OPERATORS.md` §OP-05, `DATA_FLOW.md` §7.3). `Workers` moved to Supabase; see §1b's row for that part of OP-05's read set. This row must always match `OPERATORS.md` §OP-05's Inputs list exactly; a mismatch here previously contradicted the confidentiality contract and has been corrected. |
+| Read | OP-04 | `Manager_Directory` |
+| Write | OP-04 | `Cases_Audit_Log` |
+| Read | every Operator | `policy_config` |
+| Read (aggregate) | OP-05 | `Workers`, `Onboarding_Tasks`, `Provisioning_Integration`, `Cases_Audit_Log` — **never** `Peakon_Engagement`, by design (`OPERATORS.md` §OP-05, `DATA_FLOW.md` §7.3). This row must always match `OPERATORS.md` §OP-05's Inputs list exactly; a mismatch here previously contradicted the confidentiality contract and has been corrected. |
 
-#### Failure Recovery
+### Failure Recovery
 Per-Operator retry policy (`policy_config.retry`: 3 attempts, 5/20/60s backoff — `ARCHITECTURE.md` §7).
 Exhausted retries escalate per each Operator's failure table in `OPERATORS.md` — never a silent skip.
 
-#### Fallback
+### Fallback
 None for reads that feed a live business decision (a failed read must escalate, not guess —
 `MASTER_PLAN.md` §6). The one designed exception is OP-05, which falls back to serving its last
 successful metrics snapshot with a staleness flag rather than a broken dashboard during a live demo
@@ -94,69 +101,15 @@ successful metrics snapshot with a staleness flag rather than a broken dashboard
 number is more useful mid-demo than an error screen, and nothing downstream depends on OP-05's output
 for correctness (it's a reporting leaf, not a decision input).
 
-#### Qualification Gate Contribution
-Satisfies "at least one system of record" outright (also satisfied independently by Supabase, §1b — pure
-margin).
+### Qualification Gate Contribution
+Satisfies "at least one system of record" outright — the **only** system of record now, so this
+integration going down during judging would fail the gate outright, not just degrade one metric. See
+`RISKS.md` R-26 for the accepted residual risk this creates and its mitigation.
 
-#### Judging Contribution
+### Judging Contribution
 Central to **Business output** (OP-05 reads it for the quantified metric) and **Customizability** (no
-code path bypasses it for the tables it still owns — a business user editing `Onboarding_Tasks` directly
-changes what OP-02 sees next run, without any workflow edit).
-
----
-
-### 1b. Supabase
-
-#### Purpose
-Hosts `Workers`, `Manager_Directory`, and `policy_config` — the three tables OP-01 touches, plus the
-config every Operator reads. Migrated from Airtable mid-Round-1 (`DECISIONS.md` ADR-001 amendment); see
-`config/supabase_schema.sql` for the exact schema.
-
-#### Category
-System of record — same category as Airtable (§1a), not a new one; contributes to the integration
-**count** for gate margin, not to category diversity (`INTEGRATIONS.md` Summary Table note).
-
-#### Why Selected (over staying on Airtable)
-Postgres-backed, stronger for the kind of relational queries a Round 2 coded console would want
-(`DECISIONS.md` ADR-001 originally flagged this as a Round-2-only forward consideration; it started
-earlier here, on both read and write sides, not just read). No native Auto connector exists for it any
-more than for Airtable, so it's reached the same way — Path 2 custom REST (`AUTO_BUILD_GUIDE.md` §A2).
-
-#### Authentication
-Project-scoped Supabase `secret` API key (the current-generation equivalent of the legacy `service_role`
-key — full access, bypasses Row Level Security), owned by the team, stored in `.env`
-(`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`) and Auto's credential store, never committed. RLS is off on
-the migrated tables — the only caller is this secret key from trusted server-side automation (Auto, and
-the local reseed scripts), never a browser/anon client, so RLS would add no real security boundary here.
-
-#### Data Exchanged
-- **Read:** `Manager_Directory` by OP-04 (channel/manager resolution); `policy_config` by every Operator,
-  every run (retry profile, thresholds, templates — `ARCHITECTURE.md` §7).
-- **Write:** `Workers` (OP-01, new/updated hire records, upsert on `Worker_WID`).
-
-#### Read/Write Operations
-| Operation | Operator | Table |
-|---|---|---|
-| Write (create/update) | OP-01 | `Workers` |
-| Read | OP-04 | `Manager_Directory` |
-| Read | every Operator | `policy_config` |
-| Read (aggregate) | OP-05 | `Workers` (the rest of OP-05's read set is Airtable, §1a) |
-
-#### Failure Recovery
-Identical retry wrapper to Airtable's (`policy_config.retry`, `AUTO_BUILD_GUIDE.md` §C) — the backend
-differs, the resilience contract doesn't. Exhausted retries escalate the same way, tagged per Operator.
-
-#### Fallback
-Same policy as Airtable (§1a): none for a live decision read, staleness-flagged snapshot only for OP-05.
-
-#### Qualification Gate Contribution
-Adds a 5th connected integration on top of an already-gate-satisfying set (Airtable + Slack) — pure
-margin, per the Summary Table note above.
-
-#### Judging Contribution
-Same **Customizability** argument as Airtable, now for `Workers`/`policy_config` specifically — a
-business user editing `policy_config.engagement_low_score` in Supabase's Table Editor changes OP-03's
-behavior next run, with zero code or workflow edits.
+code path bypasses it — a business user editing any table, including `policy_config`, directly changes
+what the AI Employee sees or does next run, without any workflow edit).
 
 ---
 
@@ -245,13 +198,12 @@ logic (§`DATA_FLOW.md` §6), so neither is a "backup" for the other so much as 
 pipeline.
 
 ### Qualification Gate Contribution
-Adds a distinct category, building margin above the gate's minimum (`MASTER_PLAN.md` §3). Combined with
-the Supabase split (§1b), the gate is now resilient to a single SoR outage in a way it wasn't before: an
-Airtable-only outage no longer threatens the "1 system of record" requirement at all, since Supabase
-independently satisfies it (and vice versa). **Caveat**, still explicitly noted: the gate requires 1
-channel + 1 SoR specifically, so Typeform's own category cannot substitute for a Slack outage — its real
-value is the extra-category count buffer, not category substitution. This caveat is recorded so the team
-does not misunderstand the margin it provides.
+The 3rd required category (Forms), completing the gate's exact stated minimum alongside Supabase (SoR)
+and Slack (channel) — see the Summary Table's gate-math note. **This is no longer margin — it's part of
+the floor.** Since Airtable's full deprecation (`DECISIONS.md` ADR-001 second amendment), there is no 4th
+or 5th integration left in reserve; a Typeform outage during judging would drop the category count below
+the gate's "≥2 categories" requirement (Supabase + Slack alone is only 2 categories), not just remove
+one demo beat. See `RISKS.md` R-26 for the accepted residual risk this creates.
 
 ### Judging Contribution
 Demonstrates the full lifecycle "new hire arrives → normalized → monitored" live, which strengthens the
@@ -263,8 +215,8 @@ data) and gives the demo a natural opening beat (`DEMO.md` §3).
 ## 4. GitHub — Developer Systems (Bonus / Optional)
 
 ### Purpose
-Stretch-goal audit trail: mirror every `Cases & Audit Log` write as a GitHub issue or commit, giving a
-fully external, tamper-evident audit surface beyond Airtable itself.
+Stretch-goal audit trail: mirror every `Cases_Audit_Log` write as a GitHub issue or commit, giving a
+fully external, tamper-evident audit surface beyond Supabase itself.
 
 ### Category
 Developer systems — explicitly listed (`CONTEXT.md` §5: "GitHub, GitLab").
@@ -272,32 +224,32 @@ Developer systems — explicitly listed (`CONTEXT.md` §5: "GitHub, GitLab").
 ### Why Selected (and why optional)
 Named directly in the rules; a natural fit for the **auditability & governance bonus**
 (`CONTEXT.md` §7: *"a full audit trail per case... readable without an engineer"*). Marked optional
-because it is not required for the gate (already satisfied by Airtable + Supabase + Slack + Typeform,
-§1/§2/§3 above) and should only be attempted after Phase 1–3 of `TASKS.md` are solid, per
-`MASTER_PLAN.md` §4.5 bonus-priority ordering — attempting this integration before the core pipeline is
-robust would trade robustness for a bonus, which `MASTER_PLAN.md` §1 explicitly ranks below
-gate/business-output/architecture.
+because it is not required for the gate (already satisfied at the bare minimum by Supabase + Slack +
+Typeform, §1/§2/§3 above — see the Summary Table's gate-math note on why there's no spare margin left to
+lean on) and should only be attempted after Phase 1–3 of `TASKS.md` are solid, per `MASTER_PLAN.md` §4.5
+bonus-priority ordering — attempting this integration before the core pipeline is robust would trade
+robustness for a bonus, which `MASTER_PLAN.md` §1 explicitly ranks below gate/business-output/architecture.
 
 ### Authentication
 GitHub personal access token or GitHub App, scoped to a single repository the team creates for this
 purpose only.
 
 ### Data Exchanged
-Outbound only: case summaries (same non-sensitive fields as the Airtable audit log — the confidentiality
-contract in `DATA_FLOW.md` §7 applies identically here; a GitHub issue must never contain raw disclosure
-text either).
+Outbound only: case summaries (same non-sensitive fields as the Supabase `Cases_Audit_Log` table — the
+confidentiality contract in `DATA_FLOW.md` §7 applies identically here; a GitHub issue must never contain
+raw disclosure text either).
 
 ### Read/Write Operations
 Write-only (create issue/commit).
 
 ### Failure Recovery
 Best-effort — because this integration is bonus-only and not gate-relevant, a failure here should log a
-warning but must **never** escalate to the Workbench or block the primary Airtable audit write (which
+warning but must **never** escalate to the Workbench or block the primary `Cases_Audit_Log` write (which
 remains the authoritative record). This is an explicit priority ordering: the bonus integration must not
 be able to degrade core functionality.
 
 ### Fallback
-Airtable `Cases & Audit Log` remains fully authoritative with or without this integration; GitHub is
+Supabase's `Cases_Audit_Log` remains fully authoritative with or without this integration; GitHub is
 strictly additive.
 
 ### Qualification Gate Contribution

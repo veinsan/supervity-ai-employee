@@ -12,16 +12,16 @@
 flowchart TB
     subgraph Intake["Intake Layer"]
         TF["Typeform<br/>(new-hire form)"]
-        SEED["Reseeding Utility<br/>(CSV/XLSX → Supabase + Airtable)"]
+        SEED["Reseeding Utility<br/>(CSV/XLSX → Supabase)"]
     end
 
-    subgraph SoR["System of Record<br/>(split — DECISIONS.md ADR-001 amendment)"]
+    subgraph SoR["System of Record<br/>(all Supabase — DECISIONS.md ADR-001 second amendment)"]
         WK["Workers (Supabase)"]
         MD["Manager_Directory (Supabase)"]
-        OT["Onboarding_Tasks (Airtable)"]
-        PI["Provisioning_Integration (Airtable)"]
-        PK["Peakon_Engagement (Airtable)"]
-        CASE["Cases & Audit Log<br/>(derived table, Airtable)"]
+        OT["Onboarding_Tasks (Supabase)"]
+        PI["Provisioning_Integration (Supabase)"]
+        PK["Peakon_Engagement (Supabase)"]
+        CASE["Cases_Audit_Log<br/>(derived table, Supabase)"]
     end
 
     subgraph Auto["Supervity Auto Workspace"]
@@ -40,7 +40,7 @@ flowchart TB
     end
 
     subgraph Console["Business-Facing Output"]
-        DASH["Cohort Dashboard<br/>(Airtable Interface — see §8 note)<br/>task completion, exposure %"]
+        DASH["Cohort Dashboard<br/>(Supabase Table Editor — see §8 note)<br/>task completion, exposure %"]
     end
 
     TF -->|new hire submitted| OP1
@@ -74,13 +74,14 @@ is the "who calls what" invariant referenced throughout `OPERATORS.md`.
 > programmatic escalation carrying arbitrary case context and later write a resolution back; (2) Auto's
 > execution trace UI actually surfaces OP-02/OP-03's parallel execution visibly, since `TASKS.md` 2.2.2
 > makes "observably concurrent" a P0 acceptance criterion; (3) native Auto connectors exist for all
-> three required integrations (Airtable, Slack, Typeform) — if any is missing, that integration silently
+> three required integrations (Supabase, Slack, Typeform) — if any is missing, that integration silently
 > becomes a Path 2 code Operator instead of Path 1 native (`CONTEXT.md` §5), which is still compliant
 > but changes the build task's complexity; (4) a Round-1-appropriate surface exists for the `DASH` node
 > above. On (4): Supervity's coded "Auto Manager Console" is explicitly a **Round 2** artifact
-> (`CONTEXT.md` §3), so OP-05's Round 1 output surface is assumed to be an **Airtable Interface** (a
-> read-only view over the `Cases & Audit Log` and metrics fields) rather than any Auto-native dashboard
-> feature — the diagram's `DASH` node is labeled accordingly. All four are resolved by a dedicated
+> (`CONTEXT.md` §3), so OP-05's Round 1 output surface is **Supabase's Table Editor** (a plain
+> filterable/sortable grid over `Cases_Audit_Log` and the metrics fields, not an Airtable-Interface-style
+> purpose-built dashboard — `DECISIONS.md` ADR-001's second amendment, Consequence 1) rather than any
+> Auto-native dashboard feature — the diagram's `DASH` node is labeled accordingly. All four are resolved by a dedicated
 > Phase-0 platform spike **before** any of the five Operators are built, not discovered mid-build — see
 > `TASKS.md` Phase 0, Epic 0.0.
 
@@ -336,18 +337,18 @@ made anyway, because they cost nothing at this scale and remove risk:
   fans out per hire, so cohort size scales linearly with no architectural change needed.
 - **No in-memory aggregation across the whole cohort until OP-05** — every other Operator is scoped to
   one hire at a time, so memory/complexity per Operator call is constant regardless of cohort size.
-- **Airtable as system of record** (still true for `Onboarding_Tasks`/`Provisioning_Integration`/
-  `Peakon_Engagement`/`Cases & Audit Log`) has a documented API rate limit; the retry/backoff config
-  (§7) exists partly to absorb this gracefully rather than to handle transient network failure alone.
-  Supabase (`Workers`/`Manager_Directory`/`policy_config`, `DECISIONS.md` ADR-001 amendment) has no
-  comparably-documented per-second cap at this project's scale, but goes through the identical
-  retry/backoff wrapper anyway (`AUTO_BUILD_GUIDE.md` §C) — the resilience design doesn't depend on which
-  backend a given table happens to be on.
+- **Supabase as system of record** for all 7 tables — `Workers`/`Manager_Directory`/`policy_config`/
+  `Onboarding_Tasks`/`Provisioning_Integration`/`Peakon_Engagement`/`Cases_Audit_Log`
+  (`DECISIONS.md` ADR-001's second amendment; Airtable is fully deprecated, so the earlier
+  Airtable-rate-limit framing for the last four tables no longer applies) — has no comparably-documented
+  per-second cap at this project's scale, but every read/write still goes through the identical
+  retry/backoff wrapper (§7, `AUTO_BUILD_GUIDE.md` §C) regardless — the resilience design doesn't depend
+  on which table is being touched.
 
 ## 9. Maintainability Considerations
 
-- Every Operator has exactly one integration it writes to (OP-01→Supabase, OP-04→Slack+Airtable,
-  OP-05→Airtable+Dashboard) — see the "who calls what" invariant (§2). This means an integration outage
+- Every Operator has exactly one integration it writes to (OP-01→Supabase, OP-04→Slack+Supabase,
+  OP-05→Supabase+Dashboard) — see the "who calls what" invariant (§2). This means an integration outage
   or credential rotation touches exactly one Operator's config, never a cross-cutting change.
 - `policy_config` is versioned (`"version": "1.0"` field) so a future change can be diffed and audited —
   directly supports the auditability bonus.
@@ -361,7 +362,7 @@ Round 2 introduces a coded Auto Manager Console on Auto Runtime and a GitHub sta
 actual structure is not yet known, this document **does not** design Round 2 code architecture — doing
 so now would mean fabricating an undocumented API surface, which the project constraints explicitly
 forbid. The only forward-compatible decision made now is that OP-05's metrics (§1, `DASH` node) are
-already structured as a queryable data shape — split across Airtable and Supabase per the ADR-001
-amendment (§1) — so a future coded console has a stable contract to read from on day one of Round 2,
-regardless of what the starter repo's front end looks like. A Round 2 console reading OP-05's full input
-set needs both backends' credentials, not just one.
+already structured as a queryable data shape — all on Supabase per the ADR-001 second amendment (§1) —
+so a future coded console has a stable contract to read from on day one of Round 2, regardless of what
+the starter repo's front end looks like. A Round 2 console reading OP-05's full input set needs only one
+backend's credentials now.

@@ -82,8 +82,9 @@ Use a pre-selected hire with a sensitive Peakon comment (`CONTEXT.md` §12.4 ref
 comments matching this). Trigger, show:
 1. OP-03 classifying it `confidential: true`.
 2. The message landing in the **confidential** Slack channel only.
-3. Immediately after, open the cohort dashboard (OP-05) and show this hire's case is counted in
-   aggregate but **the disclosure text itself is nowhere in the report.**
+3. Immediately after, open the cohort console (OP-05, Supabase's Table Editor — see Beat 7 note) and
+   show this hire's case is counted in aggregate but **the disclosure text itself is nowhere in the
+   report.**
 
 > "The problem statement is explicit that sensitive disclosures can't leak into the general report. We
 > don't just say that — watch: it's in the confidential channel, and it's not in the dashboard."
@@ -105,7 +106,11 @@ values, different name variants, different dates. Re-trigger a cohort sweep. Sho
 answering it before it's asked, which is a stronger position than answering it reactively.
 
 ### Beat 7 — Console + Business Metric Close (3:40–3:50)
-Show the dashboard's headline number first — **exposure rate** — then task completion rate.
+Show the two headline numbers in OP-05's console — **exposure rate** first, then task completion rate.
+This console is Supabase's Table Editor (`DECISIONS.md` ADR-001 second amendment Consequence 1): a plain
+filterable/sortable grid over the computed metrics, not a purpose-built dashboard with formatted fields
+the way the originally-planned Airtable Interface would have been. Frame it honestly as that on camera —
+a labeled, correctly-computed grid is still a real, falsifiable business output, just not a polished one.
 
 > "Right now, this is the percentage of the active cohort with a real, unresolved onboarding risk —
 > computed straight from the raw provisioning and task data, not from our own case log. And here's task
@@ -140,7 +145,7 @@ the pre-flight check before recording:
 | Gate criterion | Proven in beat | How |
 |---|---|---|
 | Not a single mega-agent | 2, 3, 4 | Named Operators shown individually in Auto; parallel execution visible in the execution trace during beat 3/4 |
-| ≥3 integrations, ≥2 categories | 3, 4, 5 | Typeform (beat 3), Supabase (beat 3, `Workers` write) + Airtable (beats 4–5, visible in workspace), Slack (beats 4, 5) |
+| ≥3 integrations, ≥2 categories | 3, 4, 5 | Typeform (beat 3), Supabase (beat 3, `Workers` write; beats 4–5, `Cases_Audit_Log` visible in workspace — sole SoR, `DECISIONS.md` ADR-001 second amendment), Slack (beats 4, 5) — exactly the 3-integration gate minimum, zero spare (`DECISIONS.md` ADR-001 second amendment Consequence 2) |
 | ≥1 live exception to Workbench | 4 | Workbench UI shown with the case live |
 | Demonstrable parallel/branching/stateful | 2 (parallel), 4/5 (branching), narration only for stateful (90-day clock is harder to show live in 4 minutes — verbally note it, don't fabricate a visual for it) |
 
@@ -172,8 +177,8 @@ For any judge follow-up beyond the video itself (live Q&A, if applicable):
 - [ ] Pre-select and note down: 1 hire for Beat 4 with an `Onboarding_Tasks` row at `Status = Escalated`
       specifically (**not** merely a `Blocked` provisioning row — see Beat 4 above for why this
       distinction is load-bearing), 1 hire for Beat 5 (known sensitive comment), verified against the
-      current state of the seeded dataset (Airtable + Supabase, `DECISIONS.md` ADR-001 amendment)
-      immediately before recording (data could have shifted from earlier test runs).
+      current state of the seeded dataset (Supabase, `DECISIONS.md` ADR-001 second amendment — Airtable
+      is fully deprecated) immediately before recording (data could have shifted from earlier test runs).
 - [ ] Confirm Auto Workbench has no leftover unresolved test cases that would confuse the Beat 4 shot.
 - [ ] Confirm the confidential Slack channel is visibly empty of old test messages before Beat 5, or
       scroll to the correct message live rather than showing a cluttered history.

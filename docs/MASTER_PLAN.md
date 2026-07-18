@@ -54,7 +54,7 @@ during judging, one Operator not firing) still leaves the build inside the gate.
 | Gate requirement | Minimum | Our design | Margin |
 |---|---|---|---|
 | Not a single mega-agent | 1 Orchestrator + 2 Operators | 1 Orchestrator + **5** Operators (`OPERATORS.md`) | 3 operators of slack |
-| ≥3 integrations, ≥2 categories, incl. 1 channel + 1 system of record | 3 integrations / 2 categories | **3 required + 1 bonus** integrations across **3–4** categories (`INTEGRATIONS.md`) | +1 category, +1 integration |
+| ≥3 integrations, ≥2 categories, incl. 1 channel + 1 system of record | 3 integrations / 2 categories | **3 required (bare minimum) + 1 bonus, not counted** integrations across **3** categories (`INTEGRATIONS.md`, `DECISIONS.md` ADR-001 second amendment Consequence 2) | +1 category only — integration-count margin is now zero |
 | ≥1 live exception to Auto Workbench | 1 | **3 distinct escalation triggers** wired to the same Workbench path (`OPERATORS.md` §OP-04) | 3x |
 | Demonstrable parallel/branching/stateful behavior | 1 of the 3 | **All 3 simultaneously**: OP-02/OP-03 run in parallel, ORCH-01 branches on combined risk, the 90-day clock is explicit state per hire (`ARCHITECTURE.md` §4–§6) | full coverage |
 
@@ -140,8 +140,9 @@ judge questions).
    write APIs, and makes each Operator independently testable — critical when the hidden dataset is
    unknown at build time.
 2. **State lives in the system of record, not in the workflow.** The Orchestrator is stateless between
-   runs; the 90-day clock is derived from `Workers.Hire_Date` (Supabase, `DECISIONS.md` ADR-001
-   amendment), while risk history and case status are persisted fields in Airtable's `Cases & Audit Log`.
+   runs; the 90-day clock is derived from `Workers.Hire_Date`, while risk history and case status are
+   persisted fields in `Cases_Audit_Log` — both now live on Supabase, the sole system of record
+   (`DECISIONS.md` ADR-001 second amendment).
    This means a failed or restarted run cannot corrupt state, and the same Orchestrator design works
    whether triggered on a schedule or on demand.
 3. **Escalate on uncertainty, never guess.** Every Operator has an explicit "insufficient confidence /
@@ -160,7 +161,7 @@ judge questions).
 
 | Phase | Goal | Exit criteria | Maps to |
 |---|---|---|---|
-| **Phase 0 — Foundations** | Platform capabilities verified, systems stood up, dataset seeded, config schema defined | **Epic 0.0 spike passes first** (`DECISIONS.md` ADR-015: Workbench round-trip, visible parallelism, all 3 native connectors, OP-05's Airtable-Interface surface all confirmed); then Airtable + Supabase live with correct schema (`DECISIONS.md` ADR-001 amendment); Slack workspace + 5 channels live (one per `Manager_Directory.Org`, §3.1 M1 fix — never 2); Typeform live; `policy_config` v1 committed (Supabase) | `TASKS.md` Phase 0 |
+| **Phase 0 — Foundations** | Platform capabilities verified, systems stood up, dataset seeded, config schema defined | **Epic 0.0 spike passes first** (`DECISIONS.md` ADR-015: Workbench round-trip, visible parallelism, all 3 native connectors, a Round-1-appropriate OP-05 output surface all confirmed — that surface is now Supabase's Table Editor, not an Airtable Interface, `DECISIONS.md` ADR-001 second amendment Consequence 1); then Supabase live with correct schema, Airtable fully deprecated (`DECISIONS.md` ADR-001 second amendment); Slack workspace + 5 channels live (one per `Manager_Directory.Org`, §3.1 M1 fix — never 2); Typeform live; `policy_config` v1 committed (Supabase) | `TASKS.md` Phase 0 |
 | **Phase 1 — Detection Operators** | OP-01, OP-02, OP-03 built and independently testable | Each Operator returns correct output on 5 hand-picked test hires covering each seeded trap type | `TASKS.md` Phase 1 |
 | **Phase 2 — Orchestration & Action** | ORCH-01 and OP-04 built, parallel + branching wired | End-to-end run on the full 60-worker cohort completes without crash; at least 3 branch types observed | `TASKS.md` Phase 2 |
 | **Phase 3 — Robustness & Hidden-Dataset Rehearsal** | Reseeding utility built; adversarial test dataset authored and run | Build survives a hand-authored "trap-heavy" dataset with malformed dates, blanks, name variants, and duplicate rows without crashing or misrouting | `TASKS.md` Phase 3 |
@@ -176,9 +177,9 @@ if the team is 2 people (see `TASKS.md` dependency graph).
 
 Summarized here; full detail and per-integration justification in `INTEGRATIONS.md`.
 
-- **System of record: Airtable + Supabase** — hosts all 5 dataset tables plus derived case/audit
-  records; `Workers`, `Manager_Directory`, and `policy_config` now live on Supabase, the rest remain on
-  Airtable (`DECISIONS.md` ADR-001 amendment).
+- **System of record: Supabase** — sole system of record for all 7 tables (5 dataset tables,
+  `policy_config`, and `Cases_Audit_Log`); Airtable is fully deprecated (`DECISIONS.md` ADR-001 second
+  amendment).
 - **Channel: Slack** — two logical channels: a manager-nudge channel (routed by `Org`, via
   `Manager_Directory`) and a confidential HR-only channel for sensitive disclosures.
 - **Forms: Typeform** — the "a way in" new-hire intake path named explicitly in the problem statement's
@@ -186,8 +187,10 @@ Summarized here; full detail and per-integration justification in `INTEGRATIONS.
 - **Bonus / stretch: GitHub** — audit-trail log of every Orchestrator decision, for the auditability
   bonus only; not required for the gate.
 
-This set clears the gate (≥3 integrations, ≥2 categories, 1 channel + 1 SoR) with one full spare
-category (Forms) and one bonus integration held in reserve.
+This set clears the gate (≥3 integrations, ≥2 categories, 1 channel + 1 SoR) with one spare category
+(Forms — 3 categories vs. the minimum 2) but **zero** spare integrations: Supabase, Slack, and Typeform
+are exactly the 3 required (`DECISIONS.md` ADR-001 second amendment Consequence 2). GitHub (bonus/stretch,
+above) is not counted toward the gate by design and does not restore this margin.
 
 ---
 
@@ -242,9 +245,10 @@ workspace itself (`CONTEXT.md` §8). "Deployment" for Round 1 therefore means:
    submission time.
 2. All three required integrations are connected with live, non-expired credentials at submission time
    and will remain live through the judging window (20–24 July).
-3. The Airtable base, Supabase project, Slack workspace, and Typeform form are not deleted, renamed, or
-   re-permissioned
-   between submission and judging — a private checklist item, not a technical task.
+3. The Supabase project, Slack workspace, and Typeform form are not deleted, renamed, or re-permissioned
+   between submission and judging — a private checklist item, not a technical task. The original Airtable
+   base is fully deprecated (`DECISIONS.md` ADR-001 second amendment); it holds no live data and its
+   state no longer matters for judging.
 
 Round 2 deployment (Auto Runtime / Auto Manager Console / GitHub starter repo) is explicitly **out of
 scope** for this planning package until the Round 2 starter repo is released to finalists on 25 July —

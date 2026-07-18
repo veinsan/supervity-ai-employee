@@ -148,8 +148,8 @@ access" and "stalled compliance doc" trap types (`CONTEXT.md` §10) as a structu
 | Field | Source | Required |
 |---|---|---|
 | `Employee_ID`, `Hire_Date` | `Workers` | yes |
-| `Onboarding_Tasks` rows for this `Employee_ID` (`Milestone`, `Due_Date`, `Status`, `Completed_Date`, `Assigned_To_Role`) | Airtable | yes (may legitimately be empty for a brand-new hire — not an error) |
-| `Provisioning_Integration` rows for this `Employee_ID` (`Resource`, `Requested_On`, `Status`, `Fulfilled_On`) | Airtable | yes (same note) |
+| `Onboarding_Tasks` rows for this `Employee_ID` (`Milestone`, `Due_Date`, `Status`, `Completed_Date`, `Assigned_To_Role`) | Supabase (`DECISIONS.md` ADR-001 second amendment) | yes (may legitimately be empty for a brand-new hire — not an error) |
+| `Provisioning_Integration` rows for this `Employee_ID` (`Resource`, `Requested_On`, `Status`, `Fulfilled_On`) | Supabase (`DECISIONS.md` ADR-001 second amendment) | yes (same note) |
 
 ### Outputs
 ```
@@ -209,19 +209,19 @@ this Operator is read-only, which is a deliberate design choice (see `ARCHITECTU
 what" invariant) so it can be re-run idempotently at any time without side effects.
 
 ### Integrations
-Airtable, read-only (`Onboarding_Tasks`, `Provisioning_Integration`); Supabase, read-only (`Workers`,
-`DECISIONS.md` ADR-001 amendment).
+Supabase, read-only (`Workers`, `Onboarding_Tasks`, `Provisioning_Integration`; `DECISIONS.md` ADR-001
+second amendment — all on one backend now).
 
 ### Retry Behavior
-Read failures retry per `policy_config.retry` regardless of which backend the read targets; exhausted →
-escalate as `provisioning_read_failure` (this is rare for a read-only call but must still degrade to
-escalation, not a crash, per the non-negotiable "don't crash" rule).
+Read failures retry per `policy_config.retry`; exhausted → escalate as `provisioning_read_failure` (this
+is rare for a read-only call but must still degrade to escalation, not a crash, per the non-negotiable
+"don't crash" rule).
 
 ### Failure Handling
 | Failure type | Condition | Action |
 |---|---|---|
 | Validation | Unparseable date on a row | Exclude row from lateness math, note in output, continue |
-| Integration | Airtable or Supabase read fails after retries | Escalate, tag `op02_integration_failure` |
+| Integration | Supabase read fails after retries | Escalate, tag `op02_integration_failure` |
 | Low-confidence | Zero source rows for an active-window hire | Return `tier: LOW, data_state: "no_data_yet"`; do not escalate (expected state, not an error) |
 
 ### Escalation Conditions
@@ -255,7 +255,7 @@ report (`CONTEXT.md` §9 scenario text, §10, §12.7 index note).
 | Field | Source | Required |
 |---|---|---|
 | `Employee_ID` | `Workers` | yes |
-| `Peakon_Engagement` rows (`Survey_Round`, `Milestone`, `Driver`, `Score`, `Comment`, `Submitted_At`) | Airtable | yes (may be empty — non-response is a valid, meaningful state) |
+| `Peakon_Engagement` rows (`Survey_Round`, `Milestone`, `Driver`, `Score`, `Comment`, `Submitted_At`) | Supabase (`DECISIONS.md` ADR-001 second amendment) | yes (may be empty — non-response is a valid, meaningful state) |
 
 ### Outputs
 ```
@@ -313,14 +313,14 @@ Runs in parallel with OP-02, triggered by ORCH-01.
 Reads `Workers` (`Hire_Date`), `Peakon_Engagement`. Read-only, same idempotency rationale as OP-02.
 
 ### Integrations
-Airtable (read-only, `Peakon_Engagement`) + Supabase (read-only, `Workers`, `DECISIONS.md` ADR-001
-amendment) + LLM classification call (via Supervity Auto's native LLM step — not a separate external
+Supabase (read-only, `Workers`, `Peakon_Engagement`; `DECISIONS.md` ADR-001 second amendment — all on one
+backend now) + LLM classification call (via Supervity Auto's native LLM step — not a separate external
 integration for gate-counting purposes, since it does not connect to a new system of record, channel, or
 document store; see `INTEGRATIONS.md` note on this distinction).
 
 ### Retry Behavior
-Both reads (Airtable and Supabase) and the LLM classification call retry per `policy_config.retry`. LLM
-call exhausted → **must not** default to `confidential: false` (a false negative here is the single worst
+Both the Supabase read and the LLM classification call retry per `policy_config.retry`. LLM call
+exhausted → **must not** default to `confidential: false` (a false negative here is the single worst
 failure mode in the whole build — a real disclosure leaking into the general report). Default-on-failure
 is `confidential: true` with `confidence: 0` (fail safe, not fail silent), which routes to the Workbench
 for a human to actually read the comment and decide.
@@ -329,7 +329,7 @@ for a human to actually read the comment and decide.
 | Failure type | Condition | Action |
 |---|---|---|
 | Validation | Score out of range | Exclude from scoring, note in output |
-| Integration | Airtable or Supabase read fails after retries | Escalate, tag `op03_integration_failure` |
+| Integration | Supabase read fails after retries | Escalate, tag `op03_integration_failure` |
 | Low-confidence | Classifier confidence below threshold on a possible disclosure | Fail-safe to `confidential: true`, route to Workbench, never to general report |
 
 ### Escalation Conditions
@@ -380,8 +380,9 @@ credential logic for external side-effects to one place (`ARCHITECTURE.md` §9).
 2. Render the message from `policy_config.templates[case_type]`, interpolating only non-sensitive fields
    (`reasons[].detail`, never `_internal_case_payload`, into manager/IT templates).
 3. Send via Slack integration.
-4. Write a case record to the `Cases & Audit Log` Airtable table: timestamp, hire, case type, channel,
-   policy rule(s) that fired, outcome — this record is what the auditability bonus is graded on.
+4. Write a case record to the `Cases_Audit_Log` Supabase table (`DECISIONS.md` ADR-001 second amendment):
+   timestamp, hire, case type, channel, policy rule(s) that fired, outcome — this record is what the
+   auditability bonus is graded on.
 
 ### Validation
 - `Manager_WID` must resolve to a valid `Manager_Directory` row for `manager_nudge`; if not →
@@ -393,11 +394,12 @@ Called by ORCH-01 after risk tiering (§6 in `ARCHITECTURE.md`), after the confi
 have already routed away anything that shouldn't reach this Operator's non-confidential paths.
 
 ### Dependencies
-Reads `Manager_Directory` (Supabase); writes Slack channels and the `Cases & Audit Log` table (Airtable).
+Reads `Manager_Directory` (Supabase); writes Slack channels and the `Cases_Audit_Log` table (Supabase,
+`DECISIONS.md` ADR-001 second amendment).
 
 ### Integrations
-Slack (write); Supabase (read, `Manager_Directory`, `DECISIONS.md` ADR-001 amendment); Airtable (write,
-`Cases & Audit Log`).
+Slack (write); Supabase (read, `Manager_Directory`; write, `Cases_Audit_Log`; `DECISIONS.md` ADR-001
+second amendment — both on the same backend now).
 
 ### Retry Behavior
 Slack send failure → retry per `policy_config.retry`. Exhausted → the case is **not** silently dropped:
@@ -433,9 +435,8 @@ them for the console/demo, while guaranteeing sensitive disclosure content never
 > input contract that could read a raw disclosure even by mistake, because the table isn't in its read
 > list at all. Any future edit that adds `Peakon_Engagement` to OP-05's inputs (or to `INTEGRATIONS.md`'s
 > summary row for OP-05) breaks this guarantee and must be treated as a regression, not a refactor —
-> see `DATA_FLOW.md` §7.3 for the full contract and `INTEGRATIONS.md` §1a/§1b's OP-05 rows (Airtable and
-> Supabase respectively, `DECISIONS.md` ADR-001 amendment), which must always match the Inputs list below
-> exactly.
+> see `DATA_FLOW.md` §7.3 for the full contract and `INTEGRATIONS.md`'s OP-05 rows (now all Supabase,
+> `DECISIONS.md` ADR-001 second amendment), which must always match the Inputs list below exactly.
 
 ### Responsibilities
 - Compute an **exposure rate**: the % of the active cohort currently showing at least one unresolved
@@ -444,14 +445,13 @@ them for the console/demo, while guaranteeing sensitive disclosure content never
   `Provisioning_Integration`**, independent of whether the system has already acted on it. This is the
   **headline business metric** (see rationale below).
 - Compute **task completion rate** per milestone and cohort-wide, from `Onboarding_Tasks` directly.
-- Compute **at-risk-hire catch rate** (secondary metric): of hires with a logged case in `Cases & Audit
-  Log`, what fraction received a routed intervention before their next milestone's due date.
-- Publish all three to the dashboard data shape (`ARCHITECTURE.md` §1, `DASH` node — an Airtable
-  Interface, per the Phase-0-confirmed surface, `ARCHITECTURE.md` §1 note). **This publish step must
-  write to an Airtable table** regardless of which backend a given metric was computed from — Airtable
-  Interfaces can only visualize Airtable data, and `active_cohort_size` (below) is sourced from Supabase's
-  `Workers` table post-migration. OP-05 itself (the Operator, reaching both backends via REST) is the only
-  place that bridges this; the Interface never queries Supabase directly.
+- Compute **at-risk-hire catch rate** (secondary metric): of hires with a logged case in
+  `Cases_Audit_Log`, what fraction received a routed intervention before their next milestone's due date.
+- Publish all three to the dashboard data shape (`ARCHITECTURE.md` §1, `DASH` node — **Supabase's Table
+  Editor**, per `DECISIONS.md` ADR-001's second amendment, Consequence 1, which reopened `TASKS.md`
+  `0.0.4`). This publish step writes to a Supabase table like every other input OP-05 reads — with
+  everything on one backend now, OP-05 no longer needs to bridge across systems to publish; it reads and
+  writes the same backend.
 
 > **Why exposure rate, not catch rate, is the headline (fixes a near-tautology):** "at-risk catch rate"
 > as originally specified measured whether the system acted on the cases *it itself generated* — since
@@ -466,15 +466,15 @@ them for the console/demo, while guaranteeing sensitive disclosure content never
 > resolved" — which is honest framing rather than the headline claim.
 
 ### Inputs
-`Workers` (Supabase, read-only); `Onboarding_Tasks`, `Provisioning_Integration`, `Cases & Audit Log`
-(Airtable, read-only). **`Peakon_Engagement` is deliberately not in this list** — see the Purpose note
-above.
+`Workers`, `Onboarding_Tasks`, `Provisioning_Integration`, `Cases_Audit_Log` (Supabase, read-only;
+`DECISIONS.md` ADR-001 second amendment). **`Peakon_Engagement` is deliberately not in this list** — see
+the Purpose note above.
 
 ### Outputs
 ```
 cohort_metrics = {
   as_of: policy_config.as_of_date,     // explicit, not implicit — see ARCHITECTURE.md §5
-  exposure_rate: float,                 // headline metric — % of active cohort with ≥1 unresolved OP-02 reason, computed independent of Cases & Audit Log
+  exposure_rate: float,                 // headline metric — % of active cohort with ≥1 unresolved OP-02 reason, computed independent of Cases_Audit_Log
   task_completion_rate: { overall: float, by_milestone: {...} },
   at_risk_catch_rate: float,            // secondary metric
   active_cohort_size: int,
@@ -496,7 +496,7 @@ cohort_metrics = {
    **special case of the as_of-bounded definition**, not a separate metric; `TASKS.md` 4.1.1's acceptance
    criterion must pin `as_of_date` to this "beyond all due dates" condition for the 476/780 check to be
    valid, or the two will legitimately disagree at any other `as_of_date`.
-3. **At-risk catch rate** (secondary) = (cases in `Cases & Audit Log` with `outcome = sent|escalated`,
+3. **At-risk catch rate** (secondary) = (cases in `Cases_Audit_Log` with `outcome = sent|escalated`,
    i.e., *acted on*) / (all cases created), **excluding** cases still legitimately pending within their
    SLA window.
 4. Sensitive disclosure cases are counted in `open_cases` and in the catch-rate denominator/numerator
@@ -514,24 +514,23 @@ Runs once at the end of each schedule-triggered cohort sweep (`ARCHITECTURE.md` 
 triggered on-demand for the demo/console.
 
 ### Dependencies
-Reads outputs written by OP-01 (indirectly, via Supabase) and OP-04 (indirectly, via Airtable), so must
-run after a sweep completes, never interleaved with it — ORCH-01 enforces this ordering.
+Reads outputs written by OP-01 and OP-04 (both indirectly, via Supabase), so must run after a sweep
+completes, never interleaved with it — ORCH-01 enforces this ordering.
 
 ### Integrations
-Airtable (read-only, aggregate query, `Onboarding_Tasks`/`Provisioning_Integration`/`Cases & Audit Log`;
-also write, publishing computed metrics for the Interface — see Responsibilities); Supabase (read-only,
-`Workers`, `DECISIONS.md` ADR-001 amendment).
+Supabase (read-only, aggregate query, `Workers`/`Onboarding_Tasks`/`Provisioning_Integration`/
+`Cases_Audit_Log`; also write, publishing computed metrics for the Table Editor — see Responsibilities;
+`DECISIONS.md` ADR-001 second amendment — one backend for both reads and the publish write now).
 
 ### Retry Behavior
-Read failure (either backend) → retry per `policy_config.retry`; exhausted → publish the **previous**
-successful metric snapshot with a staleness flag, rather than showing a broken/blank dashboard during a
-live demo.
+Read failure → retry per `policy_config.retry`; exhausted → publish the **previous** successful metric
+snapshot with a staleness flag, rather than showing a broken/blank dashboard during a live demo.
 
 ### Failure Handling
 | Failure type | Condition | Action |
 |---|---|---|
 | Validation | Zero-division case | Return explicit "insufficient data," not an error |
-| Integration | Airtable or Supabase read fails after retries | Serve last-known-good snapshot with staleness flag |
+| Integration | Supabase read fails after retries | Serve last-known-good snapshot with staleness flag |
 | Low-confidence | N/A | — |
 
 ### Escalation Conditions

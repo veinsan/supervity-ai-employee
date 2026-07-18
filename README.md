@@ -26,7 +26,7 @@ them when the document you're in points you there, not necessarily front-to-back
 
 **Not** a chatbot. **Not** a single prompt-based agent. A governed, multi-agent system —
 `ORCH-01` coordinating `OP-01` through `OP-05` — that runs against real, live-connected systems
-(Airtable, Supabase, Slack, Typeform), enforces business logic the team defines itself, and escalates
+(Supabase, Slack, Typeform), enforces business logic the team defines itself, and escalates
 genuine exceptions to a human at the Auto Workbench instead of guessing. Full rationale in
 `docs/MASTER_PLAN.md` §1, §6.
 
@@ -88,9 +88,9 @@ flowchart LR
     ORCH --> OP4[OP-04 Escalation/Notification]
     ORCH --> WB[Auto Workbench]
     OP4 --> SL[Slack]
-    OP4 --> AT[(Airtable)]
+    OP4 --> SB
     ORCH --> OP5[OP-05 Cohort Reporting]
-    OP5 --> DASH[Dashboard]
+    OP5 --> DASH[Console]
 ```
 
 Full diagrams and every component's responsibility: `docs/ARCHITECTURE.md`.
@@ -113,7 +113,7 @@ Full specs: `docs/OPERATORS.md`.
 | Gate criterion | Status by design |
 |---|---|
 | Not a single mega-agent | ✅ 1 Orchestrator + 5 Operators |
-| ≥3 integrations, ≥2 categories, incl. 1 channel + 1 SoR | ✅ Airtable + Supabase (both SoR) + Slack (channel) + Typeform (forms) — 5 integrations, margin above the minimum |
+| ≥3 integrations, ≥2 categories, incl. 1 channel + 1 SoR | ✅ Supabase (SoR) + Slack (channel) + Typeform (forms) — 3 integrations, 3 categories: exactly the gate minimum with zero spare integration margin (Airtable fully deprecated, GitHub is bonus-only and not counted, `docs/DECISIONS.md` ADR-001 second amendment Consequence 2) |
 | ≥1 live exception to Auto Workbench | ✅ 3 distinct escalation triggers |
 | Parallel/branching/stateful demonstrable | ✅ OP-02 ∥ OP-03, combined-risk branching, 90-day derived state |
 

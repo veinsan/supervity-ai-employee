@@ -9,7 +9,7 @@ Each ADR is referenced by ID (`ADR-0xx`) from other documents rather than re-exp
 
 ---
 
-## ADR-001 — System of Record: Airtable
+## ADR-001 — System of Record: Airtable → Supabase (Airtable fully deprecated, second amendment)
 
 **Decision:** Use Airtable as the sole system of record for all five dataset tables plus the derived
 audit log.
@@ -54,13 +54,64 @@ deliberately **not** migrated yet:
   Supabase/Postgres equivalent in this workspace) — a decision deliberately deferred until Epic 4.1 is
   actually being built, not made preemptively here.
 
-This makes Airtable the system of record for 4 of 7 tables and Supabase for the remaining 3, both reached
-through the same Path-2-custom-REST pattern in Auto (no native connector for either, per spike `0.0.3`).
-Every other document in this package that names "Airtable" as *the* system of record should be read with
-this split in mind; only `INTEGRATIONS.md` §1 and `ARCHITECTURE.md` §1/§7 have been updated with the
-explicit caveat, since they're the load-bearing summaries — per-Operator sections elsewhere (`OPERATORS.md`
-OP-02/OP-03/OP-04/OP-05) are still accurate as written because they only ever touch the still-Airtable
-tables.
+*(The paragraph above described the interim 4-Airtable/3-Supabase split. Superseded by the second
+amendment below — Airtable is now fully deprecated, zero tables remain.)*
+
+**Second amendment (Round 1, full deprecation):** the interim split above was time-boxed, not a
+destination — the team decided to finish the migration rather than leave two backends live through the
+rest of the build. `Onboarding_Tasks`, `Provisioning_Integration`, `Peakon_Engagement`, and
+`Cases & Audit Log` (recreated as `Cases_Audit_Log` — underscore, no space/`&`, table was still empty at
+migration time so the rename was free) now all live on Supabase too, per the extended
+`config/supabase_schema.sql`. Airtable is deprecated: no table, no Operator, no doc should treat it as
+live going forward.
+
+**Why now, not later:** OP-02, OP-03, and OP-04's `2.1.4`/`2.1.5` aren't built yet — only OP-01 and OP-04's
+`2.1.1`–`2.1.3` are. Finishing the migration before those Operators exist means zero already-built,
+already-tested logic gets touched (the exact opposite of the risk this project's own build discipline
+warns against, e.g. the fuzzy-dedup lesson). Doing this later, after OP-02–05 were built against Airtable,
+would have meant redoing real work under worse time pressure. `2.1.1`'s Manager_Directory read was already
+repointed to Supabase in the first amendment, so it needs no further change.
+
+**Consequence 1 — OP-05's console, reopening `TASKS.md` `0.0.4`:** `0.0.4` confirmed OP-05's Round 1
+output surface as an **Airtable Interface** over `Cases & Audit Log`. Airtable Interfaces cannot read
+Supabase data, so that surface no longer exists once `Cases_Audit_Log` moves. **New decision: OP-05's
+Round 1 console is Supabase's Table Editor** — a plain filterable/sortable grid over whatever table(s)
+OP-05 publishes its computed metrics into, not a purpose-built dashboard with formatted/computed fields
+the way an Airtable Interface could be configured. This is a real quality reduction for the
+**Business output** rubric line, accepted deliberately: the alternative (a custom-built page) is
+undesigned, unscoped, and unbudgeted this close to the deadline, and no other no-code option exists in
+this workspace (`ARCHITECTURE.md` §1's own note: Auto's coded console is Round-2-only). Mitigate in the
+demo by framing this honestly rather than overselling it — a labeled, correctly-computed grid of numbers
+is still a real, falsifiable business output; it just isn't a polished dashboard. `TASKS.md` `4.1.5`'s
+task and AC need rewording to match (tracked in `0.1.5`'s follow-up).
+
+**Consequence 2 — gate integration margin:** dropping Airtable from the integration count leaves Supabase
+(system of record) + Slack (channel) + Typeform (forms) = **3 integrations, 3 categories** — GitHub is
+optional/bonus and explicitly not counted toward the gate by this project's own design
+(`INTEGRATIONS.md` §4 Qualification Gate Contribution: "None, by design"). That's exactly the gate's
+stated minimum (`CONTEXT.md` §5: "≥3 integrations, ≥2 categories, incl. 1 channel + 1 SoR") with **zero**
+spare margin — down from 5 integrations before this amendment. Accepted as a conscious trade-off: a
+single-backend architecture is simpler to build correctly with a two-person team and ~24 hours left
+(internal target `MASTER_PLAN.md` §12) than maintaining two live data backends through Phase 1–3, and the
+risk this margin protected against (one integration going down during judging) is mitigated differently
+now — Supabase, Slack, and Typeform are all independent, unrelated services, so a correlated failure
+across two of the three required categories is unlikely. If this risk later feels unacceptable, wiring
+the GitHub bonus integration (`TASKS.md` `4.2.2`) does not restore gate margin (still not counted by
+design) — the only real lever is re-adding a 4th connected system, which is out of scope for now.
+
+**Consequence 3 — `case_link` in confidential alerts (`AUTO_BUILD_GUIDE.md` `2.1.2`/`2.1.4`
+ASSUMPTION #2):** the original fallback used Airtable's automatic per-record share URL. Supabase/PostgREST
+has no equivalent — there is no "record URL" a REST write response carries. Revised: `case_link` falls
+back to a plain text reference (`"Case {case_id} — see Cases_Audit_Log"`) when `workbench_case_link` isn't
+supplied, rather than a clickable link. This is a narrower, honest fallback, not a broken one — the
+confidential Slack message still names the case unambiguously; it just doesn't hyperlink automatically
+without ORCH-01/Workbench integration (Epic 2.2) supplying a real `workbench_case_link`.
+
+This makes Supabase the sole system of record for all 7 tables, reached the same way Airtable always was
+in this workspace — Path 2 custom REST (no native connector for either, per spike `0.0.3`). Every document
+in this package that still names "Airtable" as a live system should be treated as **stale** unless it's
+explicitly discussing history (e.g., `TASKS.md` `0.1.1`/`0.1.4`, which describe what was built before this
+amendment and remain accurate as historical record).
 
 ---
 

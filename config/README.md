@@ -61,5 +61,5 @@ reachable only through the linked Workbench case (`INTEGRATIONS.md` §2 "Data Ex
 
 | Field | Default | Justification |
 |---|---|---|
-| `retry` | 3 attempts, 5/20/60s backoff | Production default; absorbs Airtable/Supabase rate limits and transient failures alike (`ARCHITECTURE.md` §7–§8) — same retry wrapper regardless of which backend a write targets. Exhausted retries always escalate, never silently drop (`OPERATORS.md` failure tables). |
+| `retry` | 3 attempts, 5/20/60s backoff | Production default; absorbs Supabase rate limits and transient failures alike (`ARCHITECTURE.md` §7–§8). Airtable is fully deprecated (`DECISIONS.md` ADR-001 second amendment) — every write today targets Supabase, though the wrapper itself was never backend-specific. Exhausted retries always escalate, never silently drop (`OPERATORS.md` failure tables). |
 | `retry_demo_profile` | 1 attempt, no backoff | Used only when `demo_mode` is on (demo recording): a live demo cannot afford up to 85s of dead air per failed write chain (`RISKS.md` R-23). |

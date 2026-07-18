@@ -13,7 +13,7 @@ paths that the problem statement treats as first-class requirements, not edge ca
 | Public sample dataset (`hr_enterprise_export.xlsx` + 6 CSVs, `CONTEXT.md` §11–§12) | Static files, team's own copy | Reseeding utility (§6) |
 | Hidden judging dataset | Static files, same schema, unseen until judging | Reseeding utility (§6), re-run live |
 | New-hire intake | Live, one record at a time | Typeform → OP-01 |
-| Manager/HR actions at the Auto Workbench | Live, human-generated | Written back to `Cases & Audit Log` |
+| Manager/HR actions at the Auto Workbench | Live, human-generated | Written back to `Cases_Audit_Log` |
 
 **Design implication:** because two structurally-identical-but-different datasets (public, hidden) must
 both flow through the exact same pipeline with zero code changes, the reseeding utility and every
@@ -29,7 +29,7 @@ property in the whole system — see `MASTER_PLAN.md` §10.
 flowchart LR
     A["Source file<br/>(xlsx or csv set)"] --> B["Reseeding Utility"]
     B --> C{"Schema<br/>validation"}
-    C -->|pass| D["Supabase: Workers, Manager_Directory<br/>Airtable: Onboarding_Tasks,<br/>Provisioning_Integration,<br/>Peakon_Engagement<br/>(split — DECISIONS.md ADR-001 amendment)"]
+    C -->|pass| D["Supabase: Workers, Manager_Directory,<br/>Onboarding_Tasks, Provisioning_Integration,<br/>Peakon_Engagement<br/>(all Supabase — DECISIONS.md ADR-001 second amendment)"]
     C -->|fail: missing/renamed column| E["Abort with a clear,<br/>column-level error report<br/>(never a partial silent load)"]
     F["Typeform submission"] --> G["OP-01"]
     G --> D
@@ -98,10 +98,10 @@ design (`ARCHITECTURE.md` §2) and keeps every transformation traceable to exact
 ## 6. Persistence & the Reseeding Utility
 
 **Design decision (`DECISIONS.md` ADR-006):** a standalone, schema-driven loader that maps source
-columns to their destination fields **by name** — Supabase for `Workers`/`Manager_Directory`, Airtable
-for the rest, per `TableSchema.backend` (`DECISIONS.md` ADR-001 amendment) — re-runnable at any time
-against any dataset matching the documented schema (`CONTEXT.md` §12.6, `Field_Dictionary.csv`),
-including the hidden judging dataset.
+columns to their destination fields **by name** — all 7 tables on Supabase now, so `TableSchema.backend`
+is a single constant rather than a per-table split (`DECISIONS.md` ADR-001's second amendment) —
+re-runnable at any time against any dataset matching the documented schema (`CONTEXT.md` §12.6,
+`Field_Dictionary.csv`), including the hidden judging dataset.
 
 Requirements on the utility (implementation detail for `TASKS.md`, not designed here beyond contract):
 - Runs as a **local script** operated by the team (not an Auto Operator) — Supervity Auto's no-code
@@ -112,7 +112,7 @@ Requirements on the utility (implementation detail for `TASKS.md`, not designed 
 - Idempotent: re-running against the same file twice does not create duplicate rows (upserts on
   `Employee_ID`/`Worker_WID`/natural keys per table).
 - Destructive-reset mode available for the live demo's "prove it on a new dataset" beat (`DEMO.md` §5) —
-  clears derived tables (`Cases & Audit Log`) but never the raw source tables from a prior run unless
+  clears derived tables (`Cases_Audit_Log`) but never the raw source tables from a prior run unless
   explicitly requested, so a demo mistake doesn't destroy evidence of prior test runs.
 - Applies text/date normalization (§3) per row during load, but **does not** run OP-01's fuzzy-dedup
   match against existing rows — the seed file's workers are already distinct, verified records
@@ -144,14 +144,14 @@ cohort report"*).
    - is **never** written to the `manager_nudge` or `it_escalation` message templates.
 3. **OP-05's read scope permanently excludes the `Peakon_Engagement` table itself** — not just a filter
    applied to what it returns. `OPERATORS.md` §OP-05's Inputs list is `Workers`, `Onboarding_Tasks`,
-   `Provisioning_Integration`, `Cases & Audit Log` only; `Peakon_Engagement` is not in that list.
+   `Provisioning_Integration`, `Cases_Audit_Log` only; `Peakon_Engagement` is not in that list.
    `INTEGRATIONS.md` §1's summary row for OP-05 must match this exactly — an earlier draft of that table
    said "OP-05 | all tables," which would have included `Peakon_Engagement` and directly contradicted
    this contract; that row has been corrected (`INTEGRATIONS.md` §1) to name OP-05's actual four-table
    read scope. This is what makes the guarantee structural: OP-05 has no input contract through which raw
    disclosure text could arrive, not a filter inside OP-05 that a future edit could accidentally remove.
    OP-05's exposure-rate metric (`OPERATORS.md` §OP-05) is computed fresh from `Onboarding_Tasks`/
-   `Provisioning_Integration` using OP-02's rule definitions, and separately, `Cases & Audit Log` gives it
+   `Provisioning_Integration` using OP-02's rule definitions, and separately, `Cases_Audit_Log` gives it
    only case existence/resolution status — never comment content, since OP-04 never writes raw disclosure
    text to that table either (§8 below).
 4. Low-confidence *possible* disclosures fail safe to confidential (`OPERATORS.md` §OP-03 Retry
@@ -178,15 +178,15 @@ flowchart TD
     TYPE -->|"Low-confidence classification"| ESC3["Fail-safe escalate<br/>tag: *_low_confidence"]
     TYPE -->|"Confidential disclosure"| ESC4["Direct confidential route<br/>bypasses tiering entirely"]
 
-    ESC1 --> LOG["OP-04: write Cases & Audit Log entry<br/>(case_type=workbench_log)"]
+    ESC1 --> LOG["OP-04: write Cases_Audit_Log entry<br/>(case_type=workbench_log)"]
     ESC2 --> LOG
     ESC3 --> LOG
-    ESC4 --> CONF["OP-04: confidential Slack channel<br/>+ Cases & Audit Log entry<br/>(no sensitive content in log)"]
+    ESC4 --> CONF["OP-04: confidential Slack channel<br/>+ Cases_Audit_Log entry<br/>(no sensitive content in log)"]
 
     LOG --> WB["Human reviews at Auto Workbench"]
     CONF --> WB
     WB --> RESOLVE["Human resolves case"]
-    RESOLVE --> LOGBACK["Resolution written back to<br/>Cases & Audit Log for audit trail"]
+    RESOLVE --> LOGBACK["Resolution written back to<br/>Cases_Audit_Log for audit trail"]
 ```
 
 **Why every escalation still produces an audit-log write, even Workbench escalations OP-04 didn't route
