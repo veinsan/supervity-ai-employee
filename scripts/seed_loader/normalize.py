@@ -17,6 +17,15 @@ Load-bearing properties (do not weaken without reading ADR-011):
   under the alternate order returns AMBIGUOUS (escalate), never a silent
   reinterpretation. Whitespace around the separator (``15 / 07 / 2026``) is
   tolerated the same way trailing/internal whitespace is elsewhere.
+  Note: a value valid under BOTH orders (e.g. 03/04/2026) is intentionally
+  NOT escalated — it is accepted under the declared order. ADR-011's prose
+  names 03/04/2026 as a "genuinely ambiguous" example, but the config's whole
+  purpose is to pick one convention and apply it consistently; escalating
+  every day<=12 numeric date (a large fraction of the real dataset, confirmed
+  by TestFullPublicSampleParses) would flood the Workbench with false
+  escalations for dates that are unambiguous under the declared convention.
+  See test_normalize.py::TestAmbiguousNumericDateOrderPolicy, which encodes
+  this as the deliberate, tested behavior.
 - All parsed dates are truncated to day granularity (docs/DATA_FLOW.md section 9,
   timezone row).
 - Blank is a distinct, meaningful state (e.g. blank Submitted_At = non-response),

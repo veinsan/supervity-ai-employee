@@ -25,8 +25,8 @@ running each task's own Acceptance Criteria before calling it Done.
 
 | ID | Status | Task | Priority | Complexity | Dependencies | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| 0.0.1 | Not Started | Confirm the Auto Workbench accepts a programmatic escalation carrying arbitrary case context, and that a human resolution at the Workbench can be written back to a system of record | P0 | S | None | A hand-built, throwaway test workflow successfully escalates one dummy case to the Workbench and the team confirms a resolution is retrievable afterward |
-| 0.0.2 | Not Started | Confirm Auto's execution trace UI visibly surfaces two steps running in parallel (not just functionally concurrent under the hood) | P0 | S | None | A trivial 2-branch parallel test workflow shows both branches executing with visible overlap in Auto's own execution/trace view — this is required evidence for `TASKS.md` 2.2.2's acceptance criterion later, so confirm it can actually be shown before relying on it |
+| 0.0.1 | Done | Confirm the Auto Workbench accepts a programmatic escalation carrying arbitrary case context, and that a human resolution at the Workbench can be written back to a system of record | P0 | S | None | A hand-built, throwaway test workflow successfully escalates one dummy case to the Workbench and the team confirms a resolution is retrievable afterward |
+| 0.0.2 | Done | Confirm Auto's execution trace UI visibly surfaces two steps running in parallel (not just functionally concurrent under the hood) | P0 | S | None | A trivial 2-branch parallel test workflow shows both branches executing with visible overlap in Auto's own execution/trace view — this is required evidence for `TASKS.md` 2.2.2's acceptance criterion later, so confirm it can actually be shown before relying on it |
 | 0.0.3 | Done | Confirm native Auto connectors exist for Airtable, Slack, and Typeform (Path 1, `CONTEXT.md` §5) | P0 | S | None | Each of the 3 shows up as a native connector option in Auto; for any that don't, immediately flag a fallback to a Path 2 code Operator and re-estimate that integration's build complexity before Phase 1 begins |
 | 0.0.4 | Done | Decide OP-05's concrete Round 1 output surface | P0 | S | None | Confirmed as an Airtable Interface (a read-only view over `Cases & Audit Log` and computed metric fields) per `ARCHITECTURE.md` §1 note, since Auto's coded Manager Console is a Round 2 artifact (`CONTEXT.md` §3) not available in Round 1 |
 
@@ -63,8 +63,8 @@ own acceptance criteria above. (Matches `MASTER_PLAN.md` §7 Phase 0 row.)
 
 | ID | Status | Task | Priority | Complexity | Dependencies | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| 1.1.1 | Not Started | Build OP-01 field validation step per `OPERATORS.md` §OP-01 Inputs/Validation | P0 | M | 0.2.2 | All required-field checks implemented; missing/malformed required field routes to escalation, not a crash |
-| 1.1.2 | Not Started | Wire date parsing (0.2.2) and manager resolution (against `Manager_Directory`) into OP-01 | P0 | M | 1.1.1, 0.2.2 | Unparseable `Hire_Date` escalates; ambiguous manager match (0 or >1 candidates) escalates |
+| 1.1.1 | Done | Build OP-01 field validation step per `OPERATORS.md` §OP-01 Inputs/Validation | P0 | M | 0.2.2 | All required-field checks implemented; missing/malformed required field routes to escalation, not a crash |
+| 1.1.2 | Done | Wire date parsing (0.2.2) and manager resolution (against `Manager_Directory`) into OP-01 | P0 | M | 1.1.1, 0.2.2 | Unparseable `Hire_Date` escalates; ambiguous manager match (0 or >1 candidates) escalates |
 | 1.1.3 | Not Started | Wire fuzzy-dedup (0.2.3) into OP-01's write path | P0 | M | 1.1.1, 0.2.3 | Above `dedup_confidence_threshold` → update existing record; below `dedup_flag_band_low` → create new; in between → escalate |
 | 1.1.4 | Not Started | Wire Airtable write + retry/escalation per `OPERATORS.md` §OP-01 Retry/Failure tables | P0 | S | 1.1.1–1.1.3, 0.1.4 | Simulated Airtable failure (disconnect integration briefly) correctly retries 3x then escalates with tag `intake_integration_failure` |
 | 1.1.5 | Not Started | Connect Typeform trigger (0.1.3) to OP-01 | P0 | S | 1.1.4, 0.1.4 | Live Typeform submission produces a correctly normalized `Workers` row within a few seconds |
