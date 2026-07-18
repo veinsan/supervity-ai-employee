@@ -36,14 +36,14 @@
   },
   "routing": {
     "manager_channel_by_org": {
-      "Finance": "#hr-nudge-finance",
-      "Sales": "#hr-nudge-sales",
-      "Ops": "#hr-nudge-ops",
-      "Engineering": "#hr-nudge-engineering",
-      "People": "#hr-nudge-people"
+      "Finance": "C0BJA0P1M6V",
+      "Sales": "C0BJBQ02U2Y",
+      "Ops": "C0BHSMV328P",
+      "Engineering": "C0BJ4PYGV5K",
+      "People": "C0BJ4PZ8961"
     },
-    "confidential_channel": "#hr-confidential",
-    "it_escalation_channel": "#it-provisioning"
+    "confidential_channel": "C0BK2CRJ596",
+    "it_escalation_channel": "C0BJ839B24A"
   },
   "templates": {
     "manager_nudge": "Onboarding check-in needed: {{preferred_name}} ({{employee_id}}), day {{day_number}} of 90. Signal: {{reason_summary}}. Please check in with your new hire and update the onboarding task tracker. Case {{case_id}}.",
