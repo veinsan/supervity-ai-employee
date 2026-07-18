@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Seed the `policy_config` Airtable table from config/policy_config.json.
+"""Seed the `policy_config` Supabase table from config/policy_config.json.
 
 Keeps the two copies in sync per config/README.md: the JSON is the reviewed record (with one-line
-justifications), the Airtable table is the runtime surface a business user edits (TASKS.md 0.2.1).
-Idempotent via performUpsert on `field_key`, same as loader.py.
+justifications), the Supabase table is the runtime surface a business user edits (TASKS.md 0.2.1).
+Idempotent via upsert on `field_key` (DECISIONS.md ADR-001 amendment — policy_config moved off Airtable
+alongside Workers/Manager_Directory), same pattern as loader.py's Supabase-routed tables.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import os
 import sys
 from pathlib import Path
 
-from airtable_client import AirtableClient
+from supabase_client import SupabaseClient, SupabaseError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_CONFIG_PATH = REPO_ROOT / "config" / "policy_config.json"
@@ -86,18 +87,22 @@ def build_rows(policy: dict) -> list:
 
 def main() -> int:
     load_env(ENV_PATH)
-    base_id = os.environ.get("AIRTABLE_BASE_ID")
-    token = os.environ.get("AIRTABLE_TOKEN")
-    if not base_id or not token:
-        print("ERROR: AIRTABLE_BASE_ID / AIRTABLE_TOKEN not set (check .env)", file=sys.stderr)
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not supabase_url or not supabase_key:
+        print("ERROR: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set (check .env)", file=sys.stderr)
         return 1
 
     with open(POLICY_CONFIG_PATH, encoding="utf-8") as f:
         policy = json.load(f)
 
     rows = build_rows(policy)
-    client = AirtableClient(base_id, token)
-    written = client.upsert_batch("policy_config", "field_key", rows)
+    client = SupabaseClient(supabase_url, supabase_key)
+    try:
+        written = client.upsert_batch("policy_config", "field_key", rows)
+    except SupabaseError as exc:
+        print(f"ERROR: Supabase write failed: {exc}", file=sys.stderr)
+        return 1
     print(f"Wrote {len(written)} policy_config rows.")
     return 0
 
