@@ -23,7 +23,7 @@ anything sensitive — to a human, provably, on data it's never seen before."*
 | 1 | Rationale — the problem | 0:00–0:35 | 0:35 | Business output |
 | 2 | Architecture explanation | 0:35–1:30 | 1:30 | Technical architecture |
 | 3 | Live run: new hire intake | 1:30–2:05 | 2:05 | Gate (live, real integration) |
-| 4 | Live exception → Auto Workbench | 2:05–2:45 | 2:45 | Gate (mandatory), Technical architecture |
+| 4 | Live exception → real Human Review → Auto Workbench | 2:05–2:45 | 2:45 | Gate (mandatory), Technical architecture |
 | 5 | Confidential-routing proof | 2:45–3:10 | 3:10 | Business narrative, problem-statement-specific requirement |
 | 6 | Hidden-dataset proof (re-seed + re-run) | 3:10–3:40 | 3:40 | Robustness, pre-empts the #1 likely judge objection |
 | 7 | Business output close | 3:40–3:50 | 3:50 | Demo & console, Business output |
@@ -57,31 +57,55 @@ Submit a live Typeform entry for a new hire on screen. Show the record land, nor
 > "That's a real Typeform submission, a real write to Supabase, and the Orchestrator picking it up
 > automatically — no mock data, no pre-staged screen recording."
 
-### Beat 4 — Live Exception → Auto Workbench (2:05–2:45) — **non-negotiable, must be live**
+### Beat 4 — Live Exception → Real Human Review → Auto Workbench (2:05–2:45) — **non-negotiable, must be live**
 Use **`EMP7000`** — already verified in rehearsal to have an `Onboarding_Tasks` row at
 `Status = Escalated` (two, in fact: "First 1:1 scheduled" and "Compliance Document signed";
 `CONTEXT.md` §12.2 confirms 40 such rows exist in the sample generally, but `EMP7000` specifically is
 the pre-confirmed, tested choice — don't substitute a different ID without re-verifying it live first).
-This specific condition is the one that **deterministically** routes to the Workbench under the routing
+This specific condition is the one that **deterministically** routes to human review under the routing
 table (`ARCHITECTURE.md` §6): `TASK_ALREADY_ESCALATED` bypasses the Slack manager-nudge path entirely,
 because the source system itself already judged the case needs a human. **Do not** substitute a hire
 whose only signal is a `Blocked` provisioning row with no `Escalated` task — that case routes to a Slack
-manager or IT nudge under the corrected routing logic, not the Workbench, and would silently break this
+manager or IT nudge under the corrected routing logic, not human review, and would silently break this
 beat.
+
+**What this beat actually proves, precisely:** OP-04's `workbench_log` branch calls Supervity Auto's
+native **Human Review** step (`auto.supervity.ai/docs/guides/human-review`) — not a database write
+labeled "workbench." This is a first-class platform mechanism: execution genuinely **pauses**, a real
+review form is generated at a unique URL, a human must act on it, and only then does execution
+**resume**. This was verified end-to-end before recording, not assumed: a real run for `EMP7000`
+produced a live form at a unique `form_url`, sat in "Waiting Review" status until manually approved, and
+only then proceeded to write the final audit record — this is the literal mechanism the gate criterion
+describes ("routed live to a human, not simulated"), not a paraphrase of it.
+
 Trigger the Orchestrator for `EMP7000` live, show:
 1. OP-02 firing `TASK_ALREADY_ESCALATED` (among its other findings — this hire is HIGH tier with 5
-   total reasons, so the Workbench routing is visibly not the only thing detected, just the thing that
-   takes priority).
-2. ORCH-01 routing directly to the Auto Workbench, `case_type: "workbench_log"` — narrate that this is
-   a deliberate design choice, not the low-confidence/uncertainty path: the source system already
-   escalated this case, so the AI Employee preserves that human-review requirement rather than
-   resolving it into an automated notification.
-3. The Workbench UI actually showing the case, live.
+   total reasons, so the routing to human review is visibly not the only thing detected, just the thing
+   that takes priority).
+2. ORCH-01 routing to `case_type: "workbench_log"` — narrate that this is a deliberate design choice,
+   not the low-confidence/uncertainty path: the source system already escalated this case, so the AI
+   Employee preserves that human-review requirement rather than resolving it into an automated
+   notification.
+3. **Execution visibly pausing** on the "Human Review" step in the Activity Timeline (status:
+   "Waiting Review") — this is the moment to slow down and narrate, since a paused, waiting step is
+   itself the proof this isn't simulated.
+4. Open the generated review form (its own URL, distinct from the Auto workspace) — show the case
+   details on screen: Case ID, Employee ID, Case Type, and the full reasons table, exactly as OP-02
+   detected them, unmodified.
+5. Click **Approve**, then show the workflow resuming and the final audit step completing
+   (`status: "approved"`, `channel_used: "workbench"`).
 
 > "This is the mandatory piece the rules call out specifically — a real exception, routed live to a
-> human, not simulated. And it's not just the system being unsure — this hire's own onboarding record
-> was already flagged for human review, so we make sure that judgment doesn't get silently downgraded
-> into an automated Slack message."
+> human, not simulated. Watch the workflow actually pause here — it's not proceeding until a person
+> acts on it. That's a real review form, not a message that says 'this would go to a human.' I'll
+> approve it now, live, and you'll see the workflow resume on its own."
+
+*Why this beat is now stronger than originally planned:* the original design only committed to "the
+Workbench UI actually showing the case" — during final testing, the team discovered the initial
+implementation only wrote a database row labeled "workbench" and never touched the platform's actual
+Human Review feature, which would have made this beat's core claim false on camera. That gap was found
+and fixed before recording (`DECISIONS.md`, `RISKS.md` R-27 for the full story) — the version demoed
+here is the corrected, genuinely-verified one.
 
 ### Beat 5 — Confidential-Routing Proof (2:45–3:10)
 Use **`EMP7003`** — already verified in rehearsal: real Peakon comment ("...dealing with a health
@@ -180,7 +204,7 @@ the pre-flight check before recording:
 |---|---|---|
 | Not a single mega-agent | 2, 3, 4 | Named Operators shown individually in Auto; parallel execution visible in the execution trace during beat 3/4 |
 | ≥3 integrations, ≥2 categories | 3, 4, 5 | Typeform (beat 3), Supabase (beat 3, `Workers` write; beats 4–5, `Cases_Audit_Log` visible in workspace — sole SoR, `DECISIONS.md` ADR-001 second amendment), Slack (beats 4, 5) — exactly the 3-integration gate minimum, zero spare (`DECISIONS.md` ADR-001 second amendment Consequence 2) |
-| ≥1 live exception to Workbench | 4 | Workbench UI shown with the case live |
+| ≥1 live exception to Workbench | 4 | Native Human Review step shown genuinely pausing execution, a real review form opened and approved on camera, execution resuming afterward — not a database write labeled "workbench" (see Beat 4's note on why this was corrected before recording) |
 | Demonstrable parallel/branching/stateful | 2 (parallel), 4/5 (branching — 2 of 5 routing branches shown live on camera, 2 more mentioned verbally as independently verified per Beat 5's optional addition, `TASKS.md` 2.2.3), narration only for stateful (90-day clock is harder to show live in 4 minutes — verbally note it, don't fabricate a visual for it) |
 
 ---
@@ -215,7 +239,9 @@ For any judge follow-up beyond the video itself (live Q&A, if applicable):
       have shifted from earlier test runs). If mentioning the off-camera branches in Beat 5's optional
       addition, have `EMP7018` (`it_escalation`) and `EMP7035` (`manager_nudge`) noted as well, though
       these don't need to be run live.
-- [ ] Confirm Auto Workbench has no leftover unresolved test cases that would confuse the Beat 4 shot.
+- [ ] Confirm the Human Review dashboard (`auto.supervity.ai/u/human-review`) has no leftover
+      unresolved/pending review items that would confuse the Beat 4 shot — either clear old test cases
+      or be ready to point specifically at the new one that appears live.
 - [ ] Confirm the confidential Slack channel is visibly empty of old test messages before Beat 5, or
       scroll to the correct message live rather than showing a cluttered history.
 - [ ] Run `EMP9999` once in rehearsal immediately before recording Beat 6, to confirm it still resolves
@@ -238,6 +264,7 @@ general-purpose, not a single hardcoded special case built only to clear the gat
 
 | Likely question | Suggested answer | Grounded in |
 |---|---|---|
+| "How do I know the 'Workbench' step is real and not just a Slack message or a database log labeled 'workbench'?" | This is answered directly by the live pause-and-approve shown in Beat 4 itself, not just asserted — the execution trace shows a genuine "Waiting Review" status, a real generated form URL, and a resume-after-approval sequence, matching Supervity's own documented Human Review mechanism (`auto.supervity.ai/docs/guides/human-review`). Worth mentioning if pressed: an earlier build iteration *did* only write a database row, which the team caught and corrected before this recording — happy to discuss that as an example of the team's own verification discipline, not something to hide | `RISKS.md` R-27, `DECISIONS.md` |
 | "How do I know this isn't hardcoded to your sample data?" | Point to Beat 6's live proof with `EMP9999` (an ID that doesn't exist in the system, handled cleanly); be upfront that a full adversarial-dataset rehearsal was planned but not completed in the time available, so this is real but narrower evidence — offer to re-run live with a judge-supplied ID on the spot if asked | `DATA_FLOW.md` §10, `MASTER_PLAN.md` §10, `TASKS.md` 3.3–3.6 (Not Started, stated honestly) |
 | "What happens if the LLM classifier gets the confidential call wrong?" | Explain the fail-safe design: low-confidence always routes to a human, never defaults to "not confidential" — the asymmetry is intentional. Note honestly: the distinct low-confidence-uncertainty branch to the Workbench (`TASKS.md` 2.2.6) wasn't separately built as its own routing path this round — every tested case had high classifier confidence, so this exact scenario wasn't exercised live | `OPERATORS.md` §OP-03 Retry Behavior, `DATA_FLOW.md` §7, `TASKS.md` 2.2.6 |
 | "Why isn't 'day-90 retention' measured directly?" | Explain Assumption A-01 openly: the dataset has no ground-truth attrition field, so the defensible proxy is the leading-indicator risk signal itself — shown live and correctly routed for multiple real hires this video, which is the quantified, falsifiable result the rubric asks for | `MASTER_PLAN.md` §4.1, `DECISIONS.md` ADR-007 |
