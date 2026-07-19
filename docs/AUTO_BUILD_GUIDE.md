@@ -4,8 +4,9 @@ sub-task, each paired with the test cases needed to confirm its Acceptance Crite
 runbook, not a redesign — every prompt implements the frozen spec in `OPERATORS.md`. Read a task's
 `OPERATORS.md` section alongside its prompt here if anything is unclear.
 
-**Covers:** OP-01 `1.1.4`–`1.1.6` (finishing Epic 1.1) and OP-04 `2.1.2`–`2.1.5` (finishing Epic 2.1).
-`1.1.1`–`1.1.3` and `2.1.1` are already built; this guide continues from those.
+**Covers:** OP-01 `1.1.4`–`1.1.6` (finishing Epic 1.1), OP-04 `2.1.2`–`2.1.5` (finishing Epic 2.1), and
+ORCH-01 `2.2.1`–`2.2.10` (Epic 2.2, prepared ahead of Phase 1 completing — do not start until OP-01/02/03
+all pass their unit tests). `1.1.1`–`1.1.3` and `2.1.1` are already built; this guide continues from those.
 
 **How to use each section:**
 1. Paste the **Prompt** block into Auto's Operator builder (continue the named Operator, don't start a new one).
@@ -115,13 +116,16 @@ are reasonable defaults, safe to change — search "ASSUMPTION" in this doc to r
 | 2 | `2.1.2` `case_link` | Optional OP-04 input `workbench_case_link` if provided; else a plain text reference `"Case {case_id} — see Cases_Audit_Log"` (revised, `DECISIONS.md` ADR-001 second amendment — Supabase has no Airtable-style automatic record URL to fall back to). |
 | 3 | `2.1.4` `case_id` | A UUID generated at OP-04 start, written into both the message templates and `Cases_Audit_Log.case_id` (already the table's primary key, `config/supabase_schema.sql` — no field to add). |
 | 4 | `1.1.4` Worker_WID | New hires get a generated UUID v4 as `Worker_WID`; the write always upserts on `Worker_WID`, so create vs update is decided by whether that WID already exists. |
+| 5 | `2.2.3` `manager_nudge` vs `it_escalation` | **Not yet resolved — needs your team's confirmation, not silently applied.** `ARCHITECTURE.md` §6's routing table routes every single-MEDIUM-reason case to `manager_nudge`, including provisioning-flavored codes, and never names `it_escalation` at all. Proposed resolution: split by whether the reason carries a `task_or_resource_ref` (`it_escalation` if present, `manager_nudge` if not) — see the flagged note at the top of the ORCH-01 section for full reasoning and the literal-spec alternative. |
+| 6 | `2.2.8` "active hire" | Not pinned in `policy_config` — defined here as `as_of_date - Hire_Date <= 90` days, matching the 90-day clock (`ARCHITECTURE.md` §5). Consider promoting to a real `policy_config.thresholds.active_window_days` field before `4.1.x` (OP-05) also needs "active cohort size." |
 
 ### §G — Platform-capability checks (verify these exist in Auto before relying on them)
 | Capability | Used by | If unavailable |
 |---|---|---|
 | Generate a UUID / random ID | `1.1.4` (new Worker_WID), `2.1.4` (case_id) | Fall back to a timestamp + employee_id composite string as the ID. |
 | Per-step retry with configurable wait, or a loop + wait step | §C retry everywhere | Use Auto's built-in step-retry with a fixed 3 attempts if custom backoff isn't supported; note the backoff won't match 5/20/60 exactly. |
-| Invoke/call another Operator as a step, passing named inputs, once per loop iteration | `1.1.5` Parent Workflow → OP-01 | If unsupported, fall back to wrapping OP-01's existing steps in a "for each submission" loop inside one Operator instead of two — this touches already-tested logic, so re-run all of `1.1.6`'s test cases afterward if you take this path. |
+| Invoke/call another Operator as a step, passing named inputs, once per loop iteration | `1.1.5` Parent Workflow → OP-01; `2.2.8` cohort sweep → ORCH-01 | If unsupported for `1.1.5`, fall back to wrapping OP-01's existing steps in a "for each submission" loop inside one Operator instead of two — touches already-tested logic, re-run `1.1.6` afterward. If unsupported for `2.2.8`, fall back to duplicating ORCH-01's routing logic (2.2.3-2.2.9) inline inside the sweep loop instead of invoking it — higher maintenance cost (two copies of the same logic to keep in sync) but functionally equivalent. |
+| Multiple trigger types (event + schedule) feeding one workflow's downstream logic | `2.2.1`/`2.2.8` (ORCH-01) | If unsupported, build the schedule path as a separate Parent Workflow calling ORCH-01 per hire (same pattern as the row above), rather than two triggers on one Operator. |
 
 ---
 
@@ -231,19 +235,52 @@ named inputs, inside a loop over an array (see §G). If it can't, fall back to w
 steps in a "for each submission" loop inside a single Operator instead — but that touches already-tested
 logic (`1.1.1`–`1.1.4`), so re-run all of `1.1.6`'s test cases afterward if you take that path.
 
-**Prompt — Parent Workflow (build as a new Operator, e.g. "OP-01 Typeform Intake Poller"):**
+**Second platform reality (discovered while building this task):** a chat that is *continuing* an
+existing Operator (e.g. OP-01's own build chat) cannot also create a brand-new Operator in that same
+chat — Auto's builder is scoped to one Operator per chat. Building the Parent Workflow therefore needs
+**two separate prompts in two separate chats**: a confirmation prompt run in OP-01's existing chat (cheap,
+no logic change, just reports back OP-01's exact saved name + input variable names), then the actual new
+Operator built in a completely fresh, empty chat using those confirmed values.
+
+**Prompt 1 — run in OP-01's existing chat first (confirmation only, no logic change):**
+```
+Do not change any existing logic in this Operator — this is a confirmation-
+only step, not a build step.
+
+I need to wire another workflow ("OP-01 Typeform Intake Poller") to call this
+Operator as a step. Please confirm:
+
+1. The exact saved/published name of this Operator, as it will appear in
+   another workflow's "call an Operator" step picker.
+
+2. The exact list and spelling of the input variable names this Operator's
+   trigger currently expects (I expect: Legal_Name, Hire_Date, Manager_Name,
+   Manager_WID, Business_Title, Job_Profile, Job_Family, Location,
+   Worker_Type, Time_Type, FTE, Email_Work, Cost_Center, Position_ID) — flag
+   any mismatch against that list.
+
+Do not modify, rename, or rebuild anything — just report back these two facts.
+```
+Use its answer to fix any name mismatch in Prompt 2 below before pasting it.
+
+**Prompt 2 — run in a completely fresh, empty Auto chat (builds the new Operator, e.g. "OP-01 Typeform
+Intake Poller"). Do not paste this into OP-01's chat — see the platform-reality note above.**
 ```
 Goal: every new Typeform intake submission — however many arrive in one poll —
 ends up processed through OP-01 exactly once, with OP-01 itself unchanged.
 
-Build a new Operator, "OP-01 Typeform Intake Poller".
+Build a brand new Operator, "OP-01 Typeform Intake Poller". This is a new,
+standalone build — do not try to edit or continue any other Operator's logic
+in this chat.
 
 1. Trigger: the native Typeform poll trigger, on the intake form created in
    task 0.1.3, on Auto's default/shortest available poll interval.
 
 2. For each individual submission returned by one poll (zero, one, or many):
-   call OP-01 ("OP-01 Intake & Normalization") once, passing that submission's
-   answers mapped onto OP-01's existing input variable names:
+   call the EXISTING saved Operator "OP-01 Intake & Normalization" (select it
+   from the saved Operators list — do not rebuild its logic here, just invoke
+   it as a step) once, passing that submission's answers mapped onto its
+   input variable names:
      Legal_Name, Hire_Date, Manager_Name, Manager_WID, Business_Title,
      Job_Profile, Job_Family, Location, Worker_Type, Time_Type, FTE,
      Email_Work, Cost_Center, Position_ID.
@@ -560,6 +597,241 @@ Run all 6 end-to-end and confirm both the routing/send outcome and the resulting
 
 ---
 
+## ORCH-01 — Epic 2.2 (Orchestrator), not started yet
+
+**Dependency reality:** ORCH-01 needs Phase 1 complete — OP-01, OP-02, and OP-03 all passing their own
+unit tests (`TASKS.md` `1.1.6`/`1.2.7`/`1.3.8`). This section is prepared in advance so there's zero lost
+time once that's true; do not start building against a partially-working OP-02/OP-03.
+
+Full spec: `ARCHITECTURE.md` §3 (trigger model), §4 (per-hire lifecycle sequence), §6 (the routing table
+— `OPERATORS.md` §ORCH-01 states this table **is** the spec, verbatim, not to be re-derived).
+
+> **Single-authority rule, apply before anything else:** ORCH-01 routes **only** on the unioned
+> `reasons[]` codes from OP-02 + OP-03. It **never** reads either Operator's `tier` field for routing —
+> `tier` is advisory-only, audit-log readability, nothing else (`DECISIONS.md` ADR-013). Reading `tier`
+> anywhere in this Operator's branching logic is a bug, not a shortcut.
+
+> **⚠️ Spec gap found while preparing this guide — needs a team decision, not silently resolved either
+> way.** `ARCHITECTURE.md` §6's routing table says the single-MEDIUM-reason branch routes to
+> `OP-04 → manager nudge` and explicitly names `MISSING_DAY_ONE_ACCESS`, `PROVISIONING_DELAYED`,
+> `LOW_ENGAGEMENT_SCORE`, and `SURVEY_NON_RESPONSE` as the triggering codes — all four go to
+> `case_type=manager_nudge` uniformly. Two things this leaves unclear: (1) `STALLED_COMPLIANCE_DOC`
+> (OP-02 rule 2) isn't in that list at all, even though it's a real single-reason case that happens
+> constantly in the sample data; (2) `OP-04`'s `it_escalation` case type and Slack template exist and are
+> fully built (`2.1.2`/`2.1.3`), but the routing table as literally written never actually calls for it —
+> every provisioning-flavored code routes to `manager_nudge` instead. **ASSUMPTION #5 (proposed, not yet
+> applied to `ARCHITECTURE.md` — flag to your teammate before building `2.2.3`-`2.2.9`):** route by
+> whether the reason carries a `task_or_resource_ref` (OP-02's `MISSING_DAY_ONE_ACCESS`/
+> `PROVISIONING_DELAYED` populate it; OP-03's `LOW_ENGAGEMENT_SCORE`/`SURVEY_NON_RESPONSE` and OP-02's
+> `STALLED_COMPLIANCE_DOC` don't) — present → `it_escalation`, absent → `manager_nudge`. This actually
+> uses the `it_escalation` template you already built and matches each code's real subject matter (IT
+> resource vs. people/process). If you'd rather match `ARCHITECTURE.md` §6's literal wording instead
+> (everything → `manager_nudge`, `it_escalation` never fires), that's a one-line change in `2.2.3`'s
+> prompt below — just confirm which one before building, don't let Auto's builder guess.
+
+> **Confidentiality nuance, easy to get wrong:** OP-03 sets `confidential: true` in **both** rows 1 and 2
+> of the routing table below — a low-confidence disclosure is *still* `confidential: true`
+> (`OPERATORS.md` §OP-03's fail-safe rule, `DATA_FLOW.md` §7 point 4). The two rows are distinguished by
+> **`confidence` vs. `disclosure_classifier_min_confidence`**, not by the `confidential` field alone. Do
+> not write `if confidential: route to Slack` — that skips the confidence check and would send an
+> unconfirmed, possibly-false disclosure straight to the confidential Slack channel instead of the
+> Workbench.
+
+### `2.2.1` + `2.2.2` — Trigger + parallel fan-out to OP-02/OP-03 (with partial-signal handling)
+
+**Prompt:**
+```
+Goal: every risk-assessment run for one hire calls OP-02 and OP-03
+concurrently, waits for both, and never gets stuck if exactly one of them
+fails.
+
+Build a new Operator, "ORCH-01 Onboarding & Retention Orchestrator".
+
+1. Trigger: an event trigger taking a single input, employee_id. (The
+   schedule-triggered cohort sweep is a separate piece, 2.2.8 — build this
+   event path first.)
+
+2. Call OP-02 ("OP-02 Onboarding & Provisioning Risk") and OP-03
+   ("OP-03 Engagement & Disclosure") with employee_id, in PARALLEL, not
+   sequentially — check Auto's execution trace after a test run and confirm
+   both calls show visibly overlapping execution, not one finishing before
+   the other starts (this is a required, verifiable gate criterion, not just
+   a claim — spike 0.0.2 already confirmed Auto's trace view can show this).
+
+3. Wait for both calls to return before proceeding (fan-in barrier).
+
+4. Partial-signal handling: if ONE of OP-02/OP-03's calls itself escalated
+   due to integration failure (not a business-logic finding — an actual
+   failed read after retries), proceed using ONLY the other Operator's
+   signal (its reasons[], and if it's OP-03, its confidential/confidence
+   fields) as if that were the complete picture. Do not block or re-try the
+   whole hire's evaluation waiting on the failed one.
+
+5. If BOTH OP-02 and OP-03 escalated due to integration failure (no usable
+   signal at all for this hire): call OP-04 with case_type="workbench_log",
+   employee_id, worker_wid, reasons=[{code:"orch01_no_signal_available",
+   detail:"both OP-02 and OP-03 failed to return a signal for this hire"}].
+   Stop — do not evaluate the routing table below for this hire.
+
+6. Otherwise, carry forward: the union of reasons[] from whichever of
+   OP-02/OP-03 succeeded (empty list from the failed one, if any), OP-03's
+   confidential/confidence fields (default confidential=false, confidence=1.0
+   if OP-03 itself failed and OP-02's signal is being used alone), and
+   worker_wid. This feeds the routing step (2.2.3, next).
+```
+
+**Test cases:**
+
+| # | Scenario | Setup | Expected outcome |
+|---|---|---|---|
+| 1 | Both succeed | Any known-good `employee_id` | Both OP-02/OP-03 calls visible and overlapping in the execution trace; both signals carried forward |
+| 2 | OP-02 fails, OP-03 succeeds | Simulate OP-02 integration failure (e.g., temporarily break its read step) | Routing proceeds using OP-03's signal alone, not blocked |
+| 3 | Both fail | Simulate both integration failures | `workbench_log` escalation with `orch01_no_signal_available`, no routing-table evaluation attempted |
+
+---
+
+### `2.2.3`–`2.2.7` + `2.2.9` — Routing table, confidentiality override, Workbench branches, OP-04 wiring
+
+**Prompt:**
+```
+Goal: exactly one branch fires per hire, evaluated in the exact order below
+(first match wins), and every branch's outcome is logged via OP-04 — nothing
+is ever silently dropped, and nothing here reads OP-02/OP-03's tier field.
+
+Continue building "ORCH-01 Onboarding & Retention Orchestrator". After the
+fan-out/fan-in step (2.2.2), add the routing decision below.
+
+STEP — Evaluate in this exact order; stop at the first match:
+
+1. OP-03's confidential = true AND confidence >= policy_config
+   disclosure_classifier_min_confidence (a CONFIRMED disclosure):
+   call OP-04 with case_type="confidential_disclosure", employee_id,
+   worker_wid, the full unioned reasons[] (for audit completeness — the
+   confidential template itself never uses reasons[], only
+   internal_case_payload.milestone, per 2.1.2), and internal_case_payload
+   passed through untouched. Stop.
+
+2. OP-03's confidential = true but confidence < disclosure_classifier_min_confidence
+   (an UNCONFIRMED possible disclosure — still confidential:true, just not
+   confirmed, see the confidentiality nuance note above): call OP-04 with
+   case_type="workbench_log", employee_id, worker_wid, reasons=[{code:
+   "op03_low_confidence_disclosure", detail:"possible disclosure below
+   confidence threshold, human review required"}]. Do NOT include
+   internal_case_payload or any comment content in this call — workbench_log
+   still goes through OP-04's normal confidentiality rules. Stop.
+
+3. "TASK_ALREADY_ESCALATED" is present in the unioned reasons[], OR both
+   OP-02 AND OP-03 each contributed at least one reason (compounding risk —
+   two independent detectors both fired): call OP-04 with
+   case_type="workbench_log", employee_id, worker_wid, the full unioned
+   reasons[]. Stop.
+
+4. Exactly one MEDIUM-weight reason total (from either Operator): call OP-04
+   with worker_wid, employee_id, the reasons[] list (one item), and
+   case_type chosen per ASSUMPTION #5 above — confirm with your teammate
+   which resolution you're using before wiring this:
+     - If using ASSUMPTION #5's proposed resolution: case_type="it_escalation"
+       when the one reason has a non-empty task_or_resource_ref, else
+       case_type="manager_nudge".
+     - If matching ARCHITECTURE.md §6 literally instead: always
+       case_type="manager_nudge".
+   Stop.
+
+5. No reasons from either Operator: log and continue — no OP-04 call, no
+   case record written. (Per OPERATORS.md §ORCH-01 Outputs: a clean "no
+   action" outcome is intentionally not written to the audit log, to keep it
+   meaningful rather than noisy with every non-event.)
+
+Every OP-04 call above is this Operator's only external I/O for this hire —
+ORCH-01 itself never touches Supabase or Slack directly (`ARCHITECTURE.md`
+§2 "who calls what" invariant).
+```
+
+**Test cases:**
+
+| # | Scenario | Input reasons[] / confidential state | Expected route |
+|---|---|---|---|
+| 1 | Confirmed confidential | `confidential:true, confidence:0.9` (>= threshold) | `confidential_disclosure` to OP-04; confidential Slack channel + audit log, no manager nudge |
+| 2 | Unconfirmed possible disclosure | `confidential:true, confidence:0.4` (< threshold) | `workbench_log` to OP-04; Workbench only, no Slack post at all |
+| 3 | Already-escalated passthrough | `reasons: [{code:"TASK_ALREADY_ESCALATED"}]` | `workbench_log` to OP-04, not a manager nudge |
+| 4 | Compounding risk | OP-02 fires 1 reason AND OP-03 fires 1 reason (different codes) | `workbench_log` to OP-04, even though each alone would be MEDIUM |
+| 5 | Single provisioning reason | `reasons: [{code:"MISSING_DAY_ONE_ACCESS", task_or_resource_ref:"Laptop"}]` | Per whichever ASSUMPTION #5 resolution you picked — `it_escalation` or `manager_nudge`, but consistently, not ad hoc |
+| 6 | Single people-process reason | `reasons: [{code:"LOW_ENGAGEMENT_SCORE"}]` | `manager_nudge` to OP-04 regardless of which ASSUMPTION #5 resolution — this code never has a resource ref |
+| 7 | No reasons | `reasons: []` from both | No OP-04 call, no audit row, no escalation |
+
+> Cases 1–2 together are the confidentiality-nuance gate — confirm case 2 does **not** post to the
+> confidential Slack channel, only case 1 does. This is the easiest place to accidentally get this wrong.
+
+---
+
+### `2.2.8` — Schedule-triggered cohort sweep
+
+**Platform capability check:** confirm Auto can invoke one workflow/Operator from another as a step,
+passing named inputs, inside a loop over an array (see §G — same capability `1.1.5`'s Parent Workflow
+already relies on). If it can, reuse that exact pattern here: a small wrapper workflow loops over active
+hires and calls ORCH-01 once per hire.
+
+> **ASSUMPTION #6 — "active hire" definition (not pinned anywhere in `policy_config`):** an active hire is
+> one within the 90-day clock (`ARCHITECTURE.md` §5) — `as_of_date - Workers.Hire_Date <= 90` days, using
+> the same `policy_config.as_of_date` rule (§D) every other date comparison in this system uses. If your
+> team wants this configurable, add `active_window_days: 90` to `policy_config.thresholds` before
+> building this — cheap now, harder to retrofit after `4.1.x` (OP-05) also needs "active cohort size."
+
+**Prompt:**
+```
+Goal: a single scheduled run processes every active hire through ORCH-01's
+existing per-hire logic (2.2.1-2.2.7/2.2.9), unchanged, with no hire skipped
+and no crash on any one hire's failure.
+
+Build a new Operator (or a second trigger on the same one, if Auto supports
+multiple trigger types feeding the same downstream logic — check this first;
+if it doesn't, build a small separate "ORCH-01 Cohort Sweep" Parent Workflow
+instead, same shape as 1.1.5's Typeform poller):
+
+1. Trigger: schedule (periodic — daily is fine for the demo cadence), no
+   input.
+
+2. Read Supabase Workers, filter to active hires: as_of_date - Hire_Date <=
+   90 days (as_of_date per policy_config's as_of_date rule, §D — null means
+   live today).
+
+3. For each active hire's Worker_WID/employee identifier: call ORCH-01's
+   per-hire logic (2.2.1-2.2.7/2.2.9) once, exactly as if it were the event
+   trigger's input. Do not duplicate the routing logic here — invoke the
+   same steps/Operator.
+
+4. If one hire's evaluation itself fails unexpectedly, log it and continue
+   to the next hire — one bad hire must never stop the sweep partway through
+   the cohort.
+
+5. After the sweep completes (all hires processed, regardless of individual
+   outcomes), trigger OP-05 once (`4.1.x`, not yet built — skip this call
+   until OP-05 exists; note it here so it's not forgotten).
+```
+
+**Test cases:**
+
+| # | Scenario | Expected outcome |
+|---|---|---|
+| 1 | Full cohort sweep | All 60 sample workers processed, zero crashes, zero silently-skipped hires |
+| 2 | One hire's evaluation fails mid-sweep | Sweep continues past it; every other hire still gets processed |
+
+> `2.2.8`'s AC is case 1 exactly as `TASKS.md` states it: "correctly processes all 60 sample workers with
+> zero crashes and zero skipped hires."
+
+---
+
+### `2.2.10` — End-to-end integration test (no build)
+
+Run the full cohort sweep (`2.2.8`) against the live/seeded data and confirm it produces **at least one
+example of each** of these 5 outcomes in one run: log-and-continue, manager nudge, IT escalation (if
+ASSUMPTION #5's split is in use), confidential routing, and a Workbench escalation via
+`TASK_ALREADY_ESCALATED`. Per `TASKS.md` `2.2.10`, hand-pick which hires to include, or supplement with
+1–2 clearly-marked synthetic test-only rows, if the public sample doesn't naturally produce all 5 — never
+mix synthetic rows into the seeded production data.
+
+---
+
 ## After building
 
 Mark each task Done in `TASKS.md` only after its own test cases pass. Building `1.1.4` + `2.1.3` + `2.1.4`
@@ -567,5 +839,11 @@ with the demo_mode-aware retry (§C) also completes **`0.2.4`** — mark it Done
 verified on both Operators (test `1.1.4` cases 3 vs 4).
 
 **Dependency reality:** OP-04 (`2.1.x`) is fully buildable now — it takes a manual test payload and does not
-need OP-01 or ORCH-01 to exist. The only cross-Operator coupling is `case_link`/Workbench confidential
-routing, which is ORCH-01's job (Epic 2.2) and is handled here via the ASSUMPTION #2 fallback until then.
+need OP-01 or ORCH-01 to exist. `case_link`/Workbench confidential routing is handled via the ASSUMPTION #2
+fallback until ORCH-01 exists and can supply a real `workbench_case_link`.
+
+ORCH-01 (`2.2.x`) is prepared above but **not buildable yet** — it needs OP-01, OP-02, and OP-03 all
+passing their own unit tests first (Phase 1 exit criteria, `TASKS.md`). Before building it: get your
+teammate's confirmation on ASSUMPTION #5 (`manager_nudge` vs `it_escalation` split) — this is a real spec
+gap, not a stylistic choice, and picking wrong silently changes which channel category ever gets a
+notification.
