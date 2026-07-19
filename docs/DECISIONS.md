@@ -575,3 +575,88 @@ substring check.
 **Future Considerations:** if other Operators are found to have a similar implicit vocabulary assumption
 during implementation, the same pattern (named config list, not embedded literal) should be applied
 rather than treated as a one-off fix specific to OP-02.
+
+---
+
+## ADR-017 — IT-Escalation vs. Manager-Nudge Routing: Explicit Per-Code Lookup, Not a Structural Heuristic
+
+**Decision:** ORCH-01's single-MEDIUM-reason routing branch (`ARCHITECTURE.md` §6) resolves
+`it_escalation` vs. `manager_nudge` by an explicit, named lookup on the specific reason `code` —
+`MISSING_DAY_ONE_ACCESS`/`PROVISIONING_DELAYED` → `it_escalation`; `STALLED_COMPLIANCE_DOC`/
+`LOW_ENGAGEMENT_SCORE` → `manager_nudge` — rather than a structural heuristic on some other field.
+
+**Alternatives Considered:**
+- **Route by whether the reason object carries a resource/task reference field** (a heuristic proposed
+  during implementation, before this ADR existed) — rejected: this is indirect and depends on
+  incidental field population that could silently change if a future edit to any Operator adds or
+  removes such a field for an unrelated reason, quietly breaking routing without anyone touching the
+  routing logic itself.
+- **Route everything to `manager_nudge`, never use `it_escalation`** — an earlier design gap
+  (`ARCHITECTURE.md` §6, prior revision) that left OP-04's fully-built `it_escalation` case type and
+  Slack template unused. Rejected once noticed: an IT-provisioning failure (a blocked laptop, an
+  unfulfilled access request) is not a manager's action item, and sending it to a manager anyway would
+  misrepresent the system's stated design (`OPERATORS.md` §OP-04 already documents a distinct
+  `it_escalation` template).
+
+**Reasoning:** a direct code→case_type lookup is deterministic, easy to audit ("why did this hire's
+case go to IT?" has a one-line answer: "because the reason code was X"), and doesn't rely on any other
+field's incidental shape. It also correctly matches each code's real subject matter — provisioning
+codes are IT's problem, task/engagement codes are the manager's.
+
+**Verification:** this decision was tested against real data, not just constructed examples —
+`EMP7018` (a `PROVISIONING_DELAYED`-only hire) confirmed routes to `it_escalation`; `EMP7035` (a
+`STALLED_COMPLIANCE_DOC`-only hire) confirmed routes to `manager_nudge`. Both routes independently
+triggered a real OP-04 subworkflow call, confirmed via that subworkflow's own run audit, not merely
+claimed by the calling step.
+
+**Tradeoffs:** none of consequence — the lookup table costs nothing extra over a heuristic, and is
+strictly more maintainable.
+
+**Future Considerations:** if `SURVEY_NON_RESPONSE` (currently unimplemented, `TASKS.md` `1.3.3`) is
+built later, it belongs in the `manager_nudge` bucket of this lookup, per the reasoning above (a
+non-response is a people/process signal, not an IT one).
+
+---
+
+## ADR-018 — ORCH-01's Merge/Routing Steps: Deterministic Code, Not AI-Interpreted
+
+**Decision:** the "Merge Subworkflow Outputs" and "Route and Escalate" steps inside ORCH-01 are built as
+plain, literal Code steps — not AI-interpreted natural-language steps — even though most of this
+project's Operators (including OP-01/02/03's own detection logic) use Auto's AI-interpreted step type
+successfully.
+
+**Alternatives Considered:**
+- **AI-interpreted step, same pattern as the detection Operators** — this was the original approach for
+  both steps and is rejected here specifically (not as a general rule for the whole project): across
+  repeated attempts, an AI-interpreted merge/routing step reported fabricated results — invented reason
+  codes that do not exist anywhere in this system's specification (e.g. `op02_it_high_risk`,
+  `op03_disclosure_missing`), invented employee data, and successful-looking summaries that directly
+  contradicted the same run's own raw execution logs. This happened consistently enough (multiple
+  separate instances, across multiple re-attempts with corrected prompts) to conclude the failure mode
+  was inherent to this specific step's AI-interpreted execution, not a one-off prompting mistake.
+
+**Reasoning:** a step whose entire job is "take two other steps' real outputs and combine/branch on
+them literally" has no need for language-model interpretation at any point — it is pure data
+plumbing. Forcing it into a deterministic Code step removes the surface area for fabrication entirely:
+there is no interpretation step to hallucinate during, only literal field access and concatenation/
+comparison. This is consistent with `DECISIONS.md` ADR-011/ADR-012's broader project stance that
+deterministic logic should be deterministic code, and OP-03's own prior fix (rebuilding its "Evaluate
+Rules and Determine Output" step as Code after the same fabrication pattern appeared there first,
+`TASKS.md` `1.3.8`) — this ADR generalizes that same lesson to ORCH-01 rather than treating each
+occurrence as an isolated incident.
+
+**Verification protocol adopted project-wide as a consequence:** after this pattern repeated across
+multiple Operators, the team adopted a standing rule for the rest of the build: **only trust an
+Operator's raw Activity Timeline / Execution Logs, never a chat response's prose summary of a run** —
+several summaries were found to describe a different (better-looking, sometimes entirely fictional)
+result than what the same run's own logs showed. Every "Done" status recorded in `TASKS.md` from this
+point in the build onward was confirmed against raw logs specifically because of this pattern, not
+against the assistant's own description of its work.
+
+**Tradeoffs:** a Code step is slightly less flexible to modify via natural-language follow-up prompts
+than an AI-interpreted one; accepted, since correctness matters more than edit convenience for logic
+this central to the whole pipeline (every routing decision the system makes passes through it).
+
+**Future Considerations:** if similar fabrication is observed in any other step during Round 2 or later
+maintenance, the same fix (convert to a deterministic Code step, then re-verify against raw logs) should
+be the default response, not renewed prompting attempts on the AI-interpreted version.

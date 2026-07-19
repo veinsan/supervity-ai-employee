@@ -231,16 +231,31 @@ both OP-02's own tier and a separately-computed "combined tier" — see `DECISIO
 | Condition (evaluated in this exact order — first match wins) | Confidential? | Route | Why |
 |---|---|---|---|
 | OP-03 confirms `confidential = true` | **yes** | **Direct to confidential HR Slack channel + a case entry logged to the Auto Workbench**, bypassing every rule below | Confidentiality is a hard override, evaluated first (`DATA_FLOW.md` §7) |
-| OP-03's disclosure classifier confidence < `disclosure_classifier_min_confidence` on a possible disclosure | no (unconfirmed) | **Auto Workbench** (fail-safe) | A human must read the actual comment; auto-deciding either way is unsafe (`OPERATORS.md` §OP-03 Retry Behavior) |
-| `TASK_ALREADY_ESCALATED` present, **or** both OP-02 and OP-03 fired a reason on the same hire (compounding risk) | no | **Auto Workbench** — human review, **not** a Slack nudge | The source system (`Status = Escalated`, `CONTEXT.md` §12.2) or two independent detectors already judged this needs a person; routing it to a Slack nudge instead would silently downgrade a signal the system of record — or the system itself — already raised |
-| Exactly one MEDIUM-weight reason (`MISSING_DAY_ONE_ACCESS`, `PROVISIONING_DELAYED`, `LOW_ENGAGEMENT_SCORE`, or `SURVEY_NON_RESPONSE` alone) | no | `OP-04` → manager nudge (Slack, manager channel, resolved by `Org` — see routing table below) | Single, routine signal — safe for automated action |
-| No reasons from either Operator | no | Log & continue (no action, no case record) | Nothing to act on |
+| OP-03's disclosure classifier confidence < `disclosure_classifier_min_confidence` on a possible disclosure | no (unconfirmed) | **Auto Workbench** (fail-safe) | A human must read the actual comment; auto-deciding either way is unsafe (`OPERATORS.md` §OP-03 Retry Behavior). **Implementation note:** this branch was not built as a distinct code path in the Round 1 build — every real test case had classifier confidence at or near 1.0, so it was never exercised; flagged as a known gap in `TASKS.md` `2.2.6`, not silently assumed covered |
+| `TASK_ALREADY_ESCALATED` present, **or** both OP-02 and OP-03 fired a reason on the same hire (compounding risk) | no | **Auto Workbench** — human review, **not** a Slack nudge | The source system (`Status = Escalated`, `CONTEXT.md` §12.2) or two independent detectors already judged this needs a person; routing it to a Slack nudge instead would silently downgrade a signal the system of record — or the system itself — already raised. **Verified live** with `EMP7000` |
+| Exactly one MEDIUM-weight reason, code is `MISSING_DAY_ONE_ACCESS` or `PROVISIONING_DELAYED` | no | `OP-04` → **IT escalation** (Slack, IT-provisioning channel) | These two codes are specifically IT-provisioning failures — an enterprise buyer's IT team, not the hire's manager, is who can actually action a blocked laptop or an unfulfilled request. **Verified live** with `EMP7018` |
+| Exactly one MEDIUM-weight reason, code is `STALLED_COMPLIANCE_DOC` or `LOW_ENGAGEMENT_SCORE` | no | `OP-04` → **manager nudge** (Slack, manager channel, resolved by `Org` — see routing table below) | These are people/process signals a manager should act on directly — a stalled compliance doc or a dip in engagement is the manager's conversation to have, not IT's. **Verified live** with `EMP7035` |
+| No reasons from either Operator | no | Log & continue (no action, no case record) | Nothing to act on. **Verified live** with `EMP9999` (no data at all for this hire) |
+
+**Note on `SURVEY_NON_RESPONSE`:** this reason code is part of OP-03's documented rule set
+(`OPERATORS.md` §OP-03 rule 2) but was not implemented in the Round 1 build — a known, disclosed
+limitation (`TASKS.md` `1.3.3`) after repeated implementation attempts produced unreliable results. It
+therefore never appears in a real `reasons[]` array this round, so the "exactly one MEDIUM-weight
+reason" rows above only ever fire on the 4 codes actually in production. If it's implemented later, it
+belongs in the manager-nudge row (a non-response is a people/process signal, not an IT one).
+
+**This decision (IT vs. manager split by specific reason code, not by a structural heuristic like
+"does the reason carry a resource reference") was flagged as an open implementation question during
+the build (see the equivalent note in `AUTO_BUILD_GUIDE.md`'s ORCH-01 section) and resolved by explicit
+per-code lookup — see `DECISIONS.md` ADR-017 for the full alternatives analysis and live verification.**
 
 **Why this table is gate-safe on its own:** the Workbench-routed row (`TASK_ALREADY_ESCALATED` /
 compounding risk) is reachable directly from the public sample data — `CONTEXT.md` §12.2 confirms 40
 `Escalated` rows exist — so the gate-mandatory live exception (`CONTEXT.md` §5) does not depend on the
 LLM classifier ever running low-confidence, giving the demo (`DEMO.md` §2 Beat 4) a reliable,
-reproducible trigger.
+reproducible trigger. **All 5 rows above have now been independently verified live**, not just designed
+on paper — see the "Verified live" notes inline and `TASKS.md` `2.2.3`/`2.2.10` for the full test
+record.
 
 ### Manager-channel routing (fixes the Org vs. Job_Family trap)
 
